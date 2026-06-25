@@ -20,5 +20,7 @@ Provider package for Sugar-AI.
 Providers are the abstraction layer between RAGAgent and model backends.
 """
 from app.providers.base import BaseProvider, GenerationParams
+from app.providers.huggingface import HuggingFaceProvider
 
-__all__ = ["BaseProvider", "GenerationParams"]
+__all__ = ["BaseProvider", "GenerationParams", "HuggingFaceProvider"]
+
