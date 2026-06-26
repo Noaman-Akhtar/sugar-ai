@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 
-@dataclass
+@dataclass(frozen=True)
 class GenerationParams:
     """Parameters controlling text generation behavior."""
     max_new_tokens: int = 1024
@@ -30,6 +30,9 @@ class GenerationParams:
     repetition_penalty: float = 1.1
     truncation: bool = True
     do_sample: bool = True
+
+    def __post_init__(self):
+        object.__setattr__(self, "do_sample", self.temperature > 0)
 
 
 class BaseProvider(ABC):

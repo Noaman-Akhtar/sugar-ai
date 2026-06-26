@@ -184,15 +184,19 @@ async def ask_llm_prompted(
             # Convert Pydantic messages to dict format for the agent function
             messages_dict = [{"role": msg.role, "content": msg.content} for msg in request_data.messages]
             
-            # Call the agent's chat completion function
-            answer = agent.run_chat_completion(
-                messages=messages_dict,
-                max_length=request_data.max_length,
-                truncation=request_data.truncation,
-                repetition_penalty=request_data.repetition_penalty,
+            # Build generation params from request
+            params = GenerationParams(
+                max_new_tokens=request_data.max_length,
                 temperature=request_data.temperature,
                 top_p=request_data.top_p,
-                top_k=request_data.top_k
+                top_k=request_data.top_k,
+                repetition_penalty=request_data.repetition_penalty,
+                truncation=request_data.truncation,
+            )
+
+            answer = agent.run_chat_completion(
+                messages=messages_dict,
+                params=params,
             )
             
             process_time = time.time() - start_time
@@ -227,15 +231,19 @@ async def ask_llm_prompted(
             logger.info(f"REQUEST - /ask-llm-prompted - User: {user_info['name']} - IP: {client_ip} - Question: {request_data.question[:200]}...")
             logger.info(f"CUSTOM PROMPT - User: {user_info['name']} - Prompt: {request_data.custom_prompt[:100]}...")
             
+            params = GenerationParams(
+                max_new_tokens=request_data.max_length,
+                temperature=request_data.temperature,
+                top_p=request_data.top_p,
+                top_k=request_data.top_k,
+                repetition_penalty=request_data.repetition_penalty,
+                truncation=request_data.truncation,
+            )
+
             answer = agent.run_with_custom_prompt(
                 question=request_data.question,
                 custom_prompt=request_data.custom_prompt,
-                max_length=request_data.max_length,
-                truncation=request_data.truncation,
-                repetition_penalty=request_data.repetition_penalty,
-                temperature=request_data.temperature,
-                top_p=request_data.top_p,
-                top_k=request_data.top_k
+                params=params,
             )
             
             process_time = time.time() - start_time

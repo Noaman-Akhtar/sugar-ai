@@ -134,21 +134,10 @@ class RAGAgent:
         return final_response
 
     def run_with_custom_prompt(self, question: str, custom_prompt: str,
-                               max_length: int = 1024, truncation: bool = True,
-                               repetition_penalty: float = 1.1, temperature: float = 0.7,
-                               top_p: float = 0.9, top_k: int = 50) -> str:
+                               params: Optional[GenerationParams] = None) -> str:
         """Process a question with custom prompt and parameters (no RAG)."""
+        params = params or GenerationParams()
         full_prompt = f"{custom_prompt}\n\nQuestion: {question}\nAnswer:"
-
-        params = GenerationParams(
-            max_new_tokens=max_length,
-            truncation=truncation,
-            repetition_penalty=repetition_penalty,
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            do_sample=temperature > 0,
-        )
 
         try:
             answer = self.provider.generate(full_prompt, params)
@@ -166,19 +155,9 @@ class RAGAgent:
             raise Exception(f"Error generating response with custom prompt: {str(e)}")
 
     def run_chat_completion(self, messages: list,
-                            max_length: int = 1024, truncation: bool = True,
-                            repetition_penalty: float = 1.1, temperature: float = 0.7,
-                            top_p: float = 0.9, top_k: int = 50) -> str:
+                            params: Optional[GenerationParams] = None) -> str:
         """Process chat messages using the provider's chat interface."""
-        params = GenerationParams(
-            max_new_tokens=max_length,
-            truncation=truncation,
-            repetition_penalty=repetition_penalty,
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            do_sample=temperature > 0,
-        )
+        params = params or GenerationParams()
 
         try:
             answer = self.provider.chat(messages, params)
