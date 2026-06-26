@@ -12,7 +12,8 @@ from datetime import datetime
 from typing import Dict, Optional, List
 
 from app.database import get_db, APIKey
-from app.ai import RAGAgent, extract_answer_from_output
+from app.ai import RAGAgent
+from app.providers.base import GenerationParams
 from app.config import settings
 
 # Pydantic models for chat completions
@@ -130,8 +131,7 @@ async def ask_llm(
     logger.info(f"REQUEST - /ask-llm - User: {user_info['name']} - IP: {client_ip} - Question: {question[:50]}...")
     
     try:
-        response = agent.model(question)
-        answer = extract_answer_from_output(response)
+        answer = agent.provider.generate(question)
         
         process_time = time.time() - start_time
         logger.info(f"RESPONSE - User: {user_info['name']} - Success - Time: {process_time:.2f}s")
@@ -320,7 +320,13 @@ async def change_model(
         raise HTTPException(status_code=403, detail="Invalid model change password")
     
     try:
-        agent.set_model(model)
+        from app.providers import HuggingFaceProvider
+        new_provider = HuggingFaceProvider(
+            model_name=model,
+            quantize=True,
+            dev_mode=False,
+        )
+        agent.set_model(new_provider)
         logger.info(f"Model changed to {model} by {user_info['name']}")
         return {"message": f"Model changed to {model}", "user": user_info["name"]}
     except Exception as e:
