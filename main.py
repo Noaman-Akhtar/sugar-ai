@@ -25,7 +25,7 @@ import os
 
 from app import create_app
 from app.ai import RAGAgent
-from app.providers import HuggingFaceProvider
+from app.providers import create_provider
 from app.database import get_db
 from app.auth import sync_env_keys_to_db
 from app.config import settings
@@ -41,18 +41,26 @@ async def startup_event():
     """Initialize data on app startup"""
     db = next(get_db())
     sync_env_keys_to_db(db)
-    if settings.DEV_MODE:
+    # Determine model name: AI_MODEL takes priority, then DEV/PROD fallback
+    if settings.AI_MODEL:
+        active_model = settings.AI_MODEL
+    elif settings.DEV_MODE:
         active_model = settings.DEV_MODEL_NAME
-        logger.info(f"DEV_MODE active. Loading lightweight model: {active_model}")
     else:
         active_model = settings.PROD_MODEL_NAME
-        logger.info(f"PRODUCTION mode. Loading full model: {active_model}")
 
-    # Create provider first, then pass it to RAGAgent
-    provider = HuggingFaceProvider(
+    logger.info(
+        "Starting with provider=%s, model=%s",
+        settings.AI_PROVIDER,
+        active_model,
+    )
+
+    provider = create_provider(
+        provider_name=settings.AI_PROVIDER,
         model_name=active_model,
         quantize=True,
         dev_mode=settings.DEV_MODE,
+        base_url=settings.OLLAMA_BASE_URL,
     )
 
     initialized_agent = RAGAgent(provider=provider)
