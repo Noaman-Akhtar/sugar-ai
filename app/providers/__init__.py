@@ -21,6 +21,39 @@ Providers are the abstraction layer between RAGAgent and model backends.
 """
 from app.providers.base import BaseProvider, GenerationParams
 from app.providers.huggingface import HuggingFaceProvider
+from app.providers.ollama import OllamaProvider
 
-__all__ = ["BaseProvider", "GenerationParams", "HuggingFaceProvider"]
+__all__ = [
+    "BaseProvider",
+    "GenerationParams",
+    "HuggingFaceProvider",
+    "OllamaProvider",
+    "create_provider",
+]
 
+
+def create_provider(
+    provider_name: str,
+    model_name: str,
+    **kwargs,
+) -> BaseProvider:
+    """Build a configured model provider by name."""
+    name = provider_name.lower().strip()
+
+    if name == "huggingface":
+        return HuggingFaceProvider(
+            model_name=model_name,
+            quantize=kwargs.get("quantize", True),
+            dev_mode=kwargs.get("dev_mode", False),
+        )
+
+    if name == "ollama":
+        return OllamaProvider(
+            model_name=model_name,
+            base_url=kwargs.get("base_url", "http://localhost:11434"),
+        )
+
+    raise ValueError(
+        f"Unknown provider: '{provider_name}'. "
+        f"Valid providers: huggingface, ollama"
+    )
