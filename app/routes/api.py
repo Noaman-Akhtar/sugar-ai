@@ -343,3 +343,34 @@ async def change_model(
     except Exception as e:
         logger.error(f"Error changing model to {model} by {user_info['name']}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error changing model: {str(e)}")
+
+
+@router.get("/health")
+async def health_check():
+    """Check if the AI backend is alive and responsive."""
+    if agent is None:
+        return {"status": "unavailable", "detail": "Agent not initialized"}
+
+    try:
+        model_name = agent.provider.get_model_name()
+        is_healthy = agent.provider.health_check()
+
+        if is_healthy:
+            return {
+                "status": "healthy",
+                "provider": type(agent.provider).__name__,
+                "model": model_name,
+            }
+        else:
+            return {
+                "status": "unhealthy",
+                "provider": type(agent.provider).__name__,
+                "model": model_name,
+                "detail": "Health check failed",
+            }
+    except Exception as e:
+        logger.error(f"Health check error: {str(e)}")
+        return {
+            "status": "error",
+            "detail": str(e),
+        }
