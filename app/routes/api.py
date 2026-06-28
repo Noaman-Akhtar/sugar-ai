@@ -328,11 +328,14 @@ async def change_model(
         raise HTTPException(status_code=403, detail="Invalid model change password")
     
     try:
-        from app.providers import HuggingFaceProvider
-        new_provider = HuggingFaceProvider(
+        from app.providers import create_provider
+        from app.config import settings
+        new_provider = create_provider(
+            provider_name=settings.AI_PROVIDER,
             model_name=model,
             quantize=True,
             dev_mode=False,
+            base_url=settings.OLLAMA_BASE_URL,
         )
         agent.set_model(new_provider)
         logger.info(f"Model changed to {model} by {user_info['name']}")
