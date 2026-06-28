@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     DEV_MODEL_NAME: str | None = None
     PROD_MODEL_NAME: str | None = None
     DEFAULT_MODEL: str | None = None
+
+    # Provider selection
+    AI_PROVIDER: str = 'huggingface'
+    AI_MODEL: str | None = None
+    OLLAMA_BASE_URL: str = 'http://localhost:11434'
     
     API_KEYS: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     MODEL_CHANGE_PASSWORD: str = ""
