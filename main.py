@@ -25,6 +25,7 @@ import os
 
 from app import create_app
 from app.ai import RAGAgent
+from app.providers import HuggingFaceProvider
 from app.database import get_db
 from app.auth import sync_env_keys_to_db
 from app.config import settings
@@ -47,13 +48,19 @@ async def startup_event():
         active_model = settings.PROD_MODEL_NAME
         logger.info(f"PRODUCTION mode. Loading full model: {active_model}")
 
-    initialized_agent = RAGAgent(model=active_model)
+    # Create provider first, then pass it to RAGAgent
+    provider = HuggingFaceProvider(
+        model_name=active_model,
+        quantize=True,
+        dev_mode=settings.DEV_MODE,
+    )
+
+    initialized_agent = RAGAgent(provider=provider)
     initialized_agent.retriever = initialized_agent.setup_vectorstore(settings.DOC_PATHS)
 
     # Inject this instance into the API module
-    # This updates the 'agent = None' in api.py to be the real loaded model
     api.agent = initialized_agent
-    
+
     app.state.agent = initialized_agent
 
 
@@ -61,4 +68,3 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     logger.info(f"Starting Sugar-AI on port {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)
-

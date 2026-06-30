@@ -11,6 +11,9 @@ You are a highly intelligent Python coding assistant built for kids using the Su
 5. Always include Sugar-specific guidance when relevant to the question.
 6. Always answer in English only.
 
+Context from documentation:
+{context}
+
 Question: {question}
 Answer:
 """
