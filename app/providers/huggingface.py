@@ -180,9 +180,4 @@ class HuggingFaceProvider(BaseProvider):
         if eos_token and eos_token in answer:
             answer = answer.split(eos_token)[0].strip()
 
-        if "\n\n" in answer:
-            candidate = answer.split("\n\n", 1)[0].strip()
-            if len(candidate) > 10:
-                answer = candidate
-
         return answer
