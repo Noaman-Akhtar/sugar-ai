@@ -61,6 +61,8 @@ async def startup_event():
         quantize=True,
         dev_mode=settings.DEV_MODE,
         base_url=settings.OLLAMA_BASE_URL,
+        api_key=settings.OPENAI_API_KEY,
+        openai_base_url=settings.OPENAI_BASE_URL,
     )
 
     initialized_agent = RAGAgent(provider=provider)
