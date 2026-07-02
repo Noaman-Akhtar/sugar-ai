@@ -336,6 +336,8 @@ async def change_model(
             quantize=True,
             dev_mode=False,
             base_url=settings.OLLAMA_BASE_URL,
+            api_key=settings.OPENAI_API_KEY,
+            openai_base_url=settings.OPENAI_BASE_URL,
         )
         agent.set_model(new_provider)
         logger.info(f"Model changed to {model} by {user_info['name']}")
