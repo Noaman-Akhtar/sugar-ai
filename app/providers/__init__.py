@@ -23,6 +23,7 @@ from app.providers.base import BaseProvider, GenerationParams
 from app.providers.huggingface import HuggingFaceProvider
 from app.providers.ollama import OllamaProvider
 from app.providers.openai_compatible import OpenAICompatibleProvider
+from app.providers.gemini import GeminiProvider
 
 __all__ = [
     "BaseProvider",
@@ -30,6 +31,7 @@ __all__ = [
     "HuggingFaceProvider",
     "OllamaProvider",
     "OpenAICompatibleProvider",
+    "GeminiProvider",
     "create_provider",
 ]
 
@@ -62,7 +64,17 @@ def create_provider(
             base_url=kwargs.get("openai_base_url", "https://api.openai.com/v1"),
         )
 
+    if name == "gemini":
+        return GeminiProvider(
+            model_name=model_name,
+            api_key=kwargs.get("gemini_api_key"),
+            base_url=kwargs.get(
+                "gemini_base_url",
+                "https://generativelanguage.googleapis.com/v1beta",
+            ),
+        )
+
     raise ValueError(
         f"Unknown provider: '{provider_name}'. "
-        f"Valid providers: huggingface, ollama, openai"
+        f"Valid providers: huggingface, ollama, openai, gemini"
     )
