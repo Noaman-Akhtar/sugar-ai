@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str | None = None
     OPENAI_BASE_URL: str = 'https://api.openai.com/v1'
 
+    # Google Gemini provider
+    GEMINI_API_KEY: str | None = None
+    GEMINI_BASE_URL: str = 'https://generativelanguage.googleapis.com/v1beta'
+
     API_KEYS: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     MODEL_CHANGE_PASSWORD: str = ""
     DOC_PATHS: List[str] = Field(default_factory=list)
