@@ -19,7 +19,11 @@ class Settings(BaseSettings):
     AI_PROVIDER: str = 'huggingface'
     AI_MODEL: str | None = None
     OLLAMA_BASE_URL: str = 'http://localhost:11434'
-    
+
+    # OpenAI-compatible provider (Groq, Cerebras, OpenRouter, OpenAI, Mistral, ...)
+    OPENAI_API_KEY: str | None = None
+    OPENAI_BASE_URL: str = 'https://api.openai.com/v1'
+
     API_KEYS: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     MODEL_CHANGE_PASSWORD: str = ""
     DOC_PATHS: List[str] = Field(default_factory=list)
