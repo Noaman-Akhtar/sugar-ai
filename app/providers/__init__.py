@@ -22,12 +22,14 @@ Providers are the abstraction layer between RAGAgent and model backends.
 from app.providers.base import BaseProvider, GenerationParams
 from app.providers.huggingface import HuggingFaceProvider
 from app.providers.ollama import OllamaProvider
+from app.providers.openai_compatible import OpenAICompatibleProvider
 
 __all__ = [
     "BaseProvider",
     "GenerationParams",
     "HuggingFaceProvider",
     "OllamaProvider",
+    "OpenAICompatibleProvider",
     "create_provider",
 ]
 
@@ -53,7 +55,14 @@ def create_provider(
             base_url=kwargs.get("base_url", "http://localhost:11434"),
         )
 
+    if name in ("openai", "openai-compatible", "openai_compatible"):
+        return OpenAICompatibleProvider(
+            model_name=model_name,
+            api_key=kwargs.get("api_key"),
+            base_url=kwargs.get("openai_base_url", "https://api.openai.com/v1"),
+        )
+
     raise ValueError(
         f"Unknown provider: '{provider_name}'. "
-        f"Valid providers: huggingface, ollama"
+        f"Valid providers: huggingface, ollama, openai"
     )
