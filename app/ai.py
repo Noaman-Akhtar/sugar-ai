@@ -145,10 +145,6 @@ class RAGAgent:
             if "Answer:" in answer:
                 answer = answer.split("Answer:")[-1].strip()
 
-            if "\n\n" in answer:
-                double_newline_pos = answer.find("\n\n")
-                answer = answer[:double_newline_pos].strip()
-
             return answer
 
         except Exception as e:
