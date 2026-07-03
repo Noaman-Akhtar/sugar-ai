@@ -63,6 +63,8 @@ async def startup_event():
         base_url=settings.OLLAMA_BASE_URL,
         api_key=settings.OPENAI_API_KEY,
         openai_base_url=settings.OPENAI_BASE_URL,
+        gemini_api_key=settings.GEMINI_API_KEY,
+        gemini_base_url=settings.GEMINI_BASE_URL,
     )
 
     initialized_agent = RAGAgent(provider=provider)
