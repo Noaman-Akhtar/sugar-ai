@@ -54,3 +54,6 @@ class BaseProvider(ABC):
     def health_check(self) -> bool:
         ...
 
+    def close(self) -> None:
+        """Release provider resources."""
+        pass
