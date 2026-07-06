@@ -54,8 +54,14 @@ class RAGAgent:
 
     def set_model(self, provider: BaseProvider) -> None:
         """Update the current provider."""
+        old_provider = self.provider
         self.provider = provider
         self.model_name = provider.get_model_name()
+        if old_provider is not provider:
+            try:
+                old_provider.close()
+            except Exception as e:
+                logger.warning("Failed to close previous provider: %s", e)
 
     def setup_vectorstore(self, file_paths: List[str]) -> Optional[FAISS]:
         """Load documents and create a vector store for retrieval."""

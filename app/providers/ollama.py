@@ -93,6 +93,10 @@ class OllamaProvider(BaseProvider):
     def get_model_name(self) -> str:
         return self.model_name
 
+    def close(self) -> None:
+        """Close the underlying HTTP client."""
+        self._client.close()
+
     def health_check(self) -> bool:
         """Check if the Ollama server is reachable and the model is available."""
         try:
