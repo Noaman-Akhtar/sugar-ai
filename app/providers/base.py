@@ -54,6 +54,10 @@ class BaseProvider(ABC):
     def health_check(self) -> bool:
         ...
 
+    def get_eos_token(self) -> Optional[str]:
+        """Return the provider's EOS token string if one is known."""
+        return None
+
     def close(self) -> None:
         """Release provider resources."""
         pass
