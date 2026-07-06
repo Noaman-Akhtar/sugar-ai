@@ -26,6 +26,14 @@ import logging
 
 logger = logging.getLogger("sugar-ai")
 
+EOS_TOKENS = (
+    "<|endoftext|>",
+    "<|eot_id|>",
+    "<|end|>",
+    "</s>",
+    "<eos>",
+)
+
 
 def format_docs(docs):
     """Return document content separated by newlines"""
@@ -151,11 +159,7 @@ class RAGAgent:
             if "Answer:" in answer:
                 answer = answer.split("Answer:")[-1].strip()
 
-            if "\n\n" in answer:
-                double_newline_pos = answer.find("\n\n")
-                answer = answer[:double_newline_pos].strip()
-
-            return answer
+            return self._truncate_at_eos(answer)
 
         except Exception as e:
             raise Exception(f"Error generating response with custom prompt: {str(e)}")
@@ -170,3 +174,20 @@ class RAGAgent:
             return answer
         except Exception as e:
             raise Exception(f"Error generating chat completion: {str(e)}")
+
+    def _truncate_at_eos(self, text: str) -> str:
+        """Trim model output at an explicit end-of-sequence token."""
+        eos_tokens = []
+        provider_eos = self.provider.get_eos_token()
+        if provider_eos:
+            eos_tokens.append(provider_eos)
+        eos_tokens.extend(EOS_TOKENS)
+
+        eos_positions = [
+            text.find(token)
+            for token in eos_tokens
+            if token and text.find(token) != -1
+        ]
+        if eos_positions:
+            return text[:min(eos_positions)].strip()
+        return text.strip()

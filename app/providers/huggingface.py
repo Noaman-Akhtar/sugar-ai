@@ -130,6 +130,9 @@ class HuggingFaceProvider(BaseProvider):
     def get_model_name(self) -> str:
         return self.model_name
 
+    def get_eos_token(self) -> Optional[str]:
+        return getattr(self._pipeline.tokenizer, "eos_token", None)
+
     def health_check(self) -> bool:
         """Check if pipeline can generate text."""
         try:
