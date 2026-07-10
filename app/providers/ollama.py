@@ -58,14 +58,11 @@ class OllamaProvider(BaseProvider):
             "stream": False,
             "options": self._params_to_options(params),
         }
+        # think is a top-level Ollama field, not part of options.
+        if params.think is not None:
+            payload["think"] = params.think
 
-        response = self._client.post(
-            f"{self.base_url}/api/generate",
-            json=payload,
-        )
-        response.raise_for_status()
-
-        data = response.json()
+        data = self._post_with_think_fallback("/api/generate", payload)
         return data.get("response", "").strip()
 
     def chat(self, messages: list[dict], params: Optional[GenerationParams] = None) -> str:
@@ -79,14 +76,11 @@ class OllamaProvider(BaseProvider):
             "stream": False,
             "options": self._params_to_options(params),
         }
+        # think is a top-level Ollama field, not part of options.
+        if params.think is not None:
+            payload["think"] = params.think
 
-        response = self._client.post(
-            f"{self.base_url}/api/chat",
-            json=payload,
-        )
-        response.raise_for_status()
-
-        data = response.json()
+        data = self._post_with_think_fallback("/api/chat", payload)
         message = data.get("message", {})
         return message.get("content", "").strip()
 
@@ -109,6 +103,29 @@ class OllamaProvider(BaseProvider):
             return response.status_code == 200
         except Exception:
             return False
+
+    def _post_with_think_fallback(self, path: str, payload: dict) -> dict:
+        """POST to Ollama, retrying once without the think flag if it is rejected.
+
+        Models that do not support reasoning reject a request carrying the
+        think field, so drop it and retry to return a normal answer instead
+        of failing.
+        """
+        try:
+            response = self._client.post(f"{self.base_url}{path}", json=payload)
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError:
+            if "think" in payload:
+                payload.pop("think")
+                logger.warning(
+                    "Model %s rejected the think flag; retrying without it.",
+                    self.model_name,
+                )
+                response = self._client.post(f"{self.base_url}{path}", json=payload)
+                response.raise_for_status()
+                return response.json()
+            raise
 
     def _params_to_options(self, params: GenerationParams) -> dict:
         """Convert GenerationParams to Ollama's options format."""
