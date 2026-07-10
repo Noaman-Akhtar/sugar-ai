@@ -35,6 +35,7 @@ class PromptedLLMRequest(BaseModel):
     temperature: float = Field(0.7, ge=0.0, le=2.0, description="Temperature for sampling")
     top_p: float = Field(0.9, gt=0.0, le=1.0, description="Top-p (nucleus) sampling parameter")
     top_k: int = Field(50, ge=0, description="Top-k sampling parameter")
+    think: bool = Field(False, description="Enable model reasoning (Ollama only, defaults off)")
 
 router = APIRouter(tags=["api"])
 
@@ -167,6 +168,12 @@ async def ask_llm_prompted(
     api_key = next(key for key, value in settings.API_KEYS.items() if value['name'] == user_info['name'])
     remaining = settings.MAX_DAILY_REQUESTS - user_quotas.get(api_key, {}).get("count", 0)
     
+    # Reasoning shares the output token budget, so give it headroom when enabled
+    # to avoid starving the answer to empty.
+    effective_max_tokens = request_data.max_length
+    if request_data.think:
+        effective_max_tokens += settings.THINKING_HEADROOM
+
     try:
         if request_data.chat:
             # Chat completions mode
@@ -188,12 +195,13 @@ async def ask_llm_prompted(
             
             # Build generation params from request
             params = GenerationParams(
-                max_new_tokens=request_data.max_length,
+                max_new_tokens=effective_max_tokens,
                 temperature=request_data.temperature,
                 top_p=request_data.top_p,
                 top_k=request_data.top_k,
                 repetition_penalty=request_data.repetition_penalty,
                 truncation=request_data.truncation,
+                think=request_data.think,
             )
 
             answer = agent.run_chat_completion(
@@ -222,7 +230,8 @@ async def ask_llm_prompted(
                     "repetition_penalty": request_data.repetition_penalty,
                     "temperature": request_data.temperature,
                     "top_p": request_data.top_p,
-                    "top_k": request_data.top_k
+                    "top_k": request_data.top_k,
+                    "think": request_data.think
                 }
             }
         else:
@@ -234,12 +243,13 @@ async def ask_llm_prompted(
             logger.info(f"CUSTOM PROMPT - User: {user_info['name']} - Prompt: {request_data.custom_prompt[:100]}...")
             
             params = GenerationParams(
-                max_new_tokens=request_data.max_length,
+                max_new_tokens=effective_max_tokens,
                 temperature=request_data.temperature,
                 top_p=request_data.top_p,
                 top_k=request_data.top_k,
                 repetition_penalty=request_data.repetition_penalty,
                 truncation=request_data.truncation,
+                think=request_data.think,
             )
 
             answer = agent.run_with_custom_prompt(
@@ -261,7 +271,8 @@ async def ask_llm_prompted(
                     "repetition_penalty": request_data.repetition_penalty,
                     "temperature": request_data.temperature,
                     "top_p": request_data.top_p,
-                    "top_k": request_data.top_k
+                    "top_k": request_data.top_k,
+                    "think": request_data.think
                 }
             }
         
