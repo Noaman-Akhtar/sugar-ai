@@ -48,6 +48,15 @@ agent = None
 # user quotas tracking
 user_quotas: Dict[str, Dict] = {}
 
+def budget_with_headroom(base_max_tokens: int, think: bool) -> int:
+    """Add reasoning headroom to the token budget when think is on.
+
+    Reasoning shares the output token budget with the answer, so without extra
+    room the chain-of-thought can consume it all and starve the answer to empty.
+    """
+    return base_max_tokens + settings.THINKING_HEADROOM if think else base_max_tokens
+
+
 def check_quota(api_key: str) -> bool:
     """Check if a user has exceeded their daily quota"""
     today = datetime.now().date()
@@ -123,18 +132,20 @@ async def ask_question(
 
 @router.post("/ask-llm")
 async def ask_llm(
-    question: str, 
-    user_info: dict = Depends(verify_api_key), 
+    question: str,
+    think: bool = False,
+    user_info: dict = Depends(verify_api_key),
     request: Request = None
 ):
     """Process a question with direct LLM call (no retrieval)"""
     start_time = time.time()
-    
+
     client_ip = request.client.host if request else "unknown"
     logger.info(f"REQUEST - /ask-llm - User: {user_info['name']} - IP: {client_ip} - Question: {question[:50]}...")
-    
+
     try:
-        answer = agent.provider.generate(question)
+        params = GenerationParams(think=think, max_new_tokens=budget_with_headroom(1024, think))
+        answer = agent.provider.generate(question, params)
         
         process_time = time.time() - start_time
         logger.info(f"RESPONSE - User: {user_info['name']} - Success - Time: {process_time:.2f}s")
@@ -168,11 +179,7 @@ async def ask_llm_prompted(
     api_key = next(key for key, value in settings.API_KEYS.items() if value['name'] == user_info['name'])
     remaining = settings.MAX_DAILY_REQUESTS - user_quotas.get(api_key, {}).get("count", 0)
     
-    # Reasoning shares the output token budget, so give it headroom when enabled
-    # to avoid starving the answer to empty.
-    effective_max_tokens = request_data.max_length
-    if request_data.think:
-        effective_max_tokens += settings.THINKING_HEADROOM
+    effective_max_tokens = budget_with_headroom(request_data.max_length, request_data.think)
 
     try:
         if request_data.chat:
