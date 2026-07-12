@@ -94,18 +94,20 @@ def verify_api_key(api_key: Optional[str] = Header(None, alias="X-API-Key"), req
 
 @router.post("/ask")
 async def ask_question(
-    question: str, 
-    user_info: dict = Depends(verify_api_key), 
+    question: str,
+    think: bool = False,
+    user_info: dict = Depends(verify_api_key),
     request: Request = None
 ):
     """Process a question using RAG pipeline"""
     start_time = time.time()
-    
+
     client_ip = request.client.host if request else "unknown"
     logger.info(f"REQUEST - /ask - User: {user_info['name']} - IP: {client_ip} - Question: {question[:50]}...")
-    
+
     try:
-        answer = agent.run(question)
+        params = GenerationParams(think=think, max_new_tokens=budget_with_headroom(1024, think))
+        answer = agent.run(question, params)
         
         # log completion
         process_time = time.time() - start_time
@@ -291,19 +293,21 @@ async def ask_llm_prompted(
         
 @router.post("/debug")
 async def debug(
-    code: str, 
+    code: str,
     context: bool,
-    user_info: dict = Depends(verify_api_key), 
+    think: bool = False,
+    user_info: dict = Depends(verify_api_key),
     request: Request = None
 ):
     """Process python code for debugging"""
     start_time = time.time()
-    
+
     client_ip = request.client.host if request else "unknown"
     logger.info(f"REQUEST - /debug - User: {user_info['name']} - IP: {client_ip} - code: {code[:50]}...")
-    
+
     try:
-        response = agent.debug(code, context)
+        params = GenerationParams(think=think, max_new_tokens=budget_with_headroom(1024, think))
+        response = agent.debug(code, context, params)
         answer = response
         
         process_time = time.time() - start_time
