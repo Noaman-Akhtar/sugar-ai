@@ -61,10 +61,6 @@ class GeminiProvider(BaseProvider):
             self.base_url,
         )
 
-    def generate(self, prompt: str, params: Optional[GenerationParams] = None) -> str:
-        """Generate text from a plain string prompt."""
-        return self.chat([{"role": "user", "content": prompt}], params)
-
     def chat(self, messages: list[dict], params: Optional[GenerationParams] = None) -> str:
         """Generate a response from chat messages."""
         if params is None:
@@ -88,9 +84,6 @@ class GeminiProvider(BaseProvider):
         response.raise_for_status()
 
         return self._extract_text(response.json())
-
-    def get_model_name(self) -> str:
-        return self.model_name
 
     def health_check(self) -> bool:
         """Check if the endpoint is reachable and the key/model are valid."""
