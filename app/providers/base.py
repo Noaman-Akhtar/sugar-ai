@@ -15,9 +15,16 @@
 
 
 """Base provider interface for Sugar-AI."""
-from abc import ABC, abstractmethod
+import httpx
+import logging
 from dataclasses import dataclass
 from typing import Optional
+
+logger = logging.getLogger("sugar-ai")
+
+# Cloud APIs are usually fast, but allow headroom for cold routes / rate-limit
+# retries handled upstream. 120s is generous without hanging forever.
+_DEFAULT_TIMEOUT = 120.0
 
 
 @dataclass(frozen=True)
@@ -35,24 +42,96 @@ class GenerationParams:
         object.__setattr__(self, "do_sample", self.temperature > 0)
 
 
-class BaseProvider(ABC):
-    """Abstract base class for all model providers."""
+class BaseProvider:
+    """OpenAI-compatible provider: speaks /v1/chat/completions over HTTP."""
 
-    @abstractmethod
+    def __init__(
+        self,
+        model_name: str,
+        api_key: str,
+        base_url: str = "https://api.openai.com/v1",
+    ):
+        if not api_key:
+            raise ValueError(
+                f"{type(self).__name__} requires an api_key. "
+                "Set OPENAI_API_KEY in your environment."
+            )
+        self.model_name = model_name
+        self.base_url = base_url.rstrip("/")
+        self._client = httpx.Client(
+            timeout=_DEFAULT_TIMEOUT,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+        )
+
+        logger.info(
+            "%s initialized: model=%s, server=%s",
+            type(self).__name__,
+            model_name,
+            self.base_url,
+        )
+
     def generate(self, prompt: str, params: Optional[GenerationParams] = None) -> str:
-        ...
+        """Generate text from a plain prompt by wrapping it as a user message."""
+        return self.chat([{"role": "user", "content": prompt}], params)
 
-    @abstractmethod
     def chat(self, messages: list[dict], params: Optional[GenerationParams] = None) -> str:
-        ...
+        """Generate a response from chat messages via /chat/completions."""
+        if params is None:
+            params = GenerationParams()
 
-    @abstractmethod
+        payload = {
+            "model": self.model_name,
+            "messages": messages,
+            "stream": False,
+            **self._params_to_options(params),
+        }
+
+        response = self._client.post(
+            f"{self.base_url}/chat/completions",
+            json=payload,
+        )
+        response.raise_for_status()
+
+        data = response.json()
+        choices = data.get("choices", [])
+        if not choices:
+            return ""
+        message = choices[0].get("message", {})
+        return (message.get("content") or "").strip()
+
     def get_model_name(self) -> str:
-        ...
+        return self.model_name
 
-    @abstractmethod
     def health_check(self) -> bool:
-        ...
+        """Verify the endpoint is reachable and the key/model are valid."""
+        try:
+            response = self._client.post(
+                f"{self.base_url}/chat/completions",
+                json={
+                    "model": self.model_name,
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "max_tokens": 1,
+                    "stream": False,
+                },
+            )
+            return response.status_code == 200
+        except Exception:
+            return False
+
+    def _params_to_options(self, params: GenerationParams) -> dict:
+        """Map GenerationParams to OpenAI chat-completions fields.
+
+        Only OpenAI-standard fields are sent. top_k and repetition_penalty
+        are not part of the spec and are intentionally omitted."""
+        
+        return {
+            "max_tokens": params.max_new_tokens,
+            "temperature": params.temperature,
+            "top_p": params.top_p,
+        }
 
     def get_eos_token(self) -> Optional[str]:
         """Return the provider's EOS token string if one is known."""
