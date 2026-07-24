@@ -90,9 +90,6 @@ class OllamaProvider(BaseProvider):
         message = data.get("message", {})
         return message.get("content", "").strip()
 
-    def get_model_name(self) -> str:
-        return self.model_name
-
     def close(self) -> None:
         """Close the underlying HTTP client."""
         self._client.close()
