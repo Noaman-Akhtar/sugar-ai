@@ -11,21 +11,21 @@ class Settings(BaseSettings):
 
     # Dev mode (THIS MUST EXIST)
     DEV_MODE: bool = os.getenv("DEV_MODE", "0") == "1"
-    DEV_MODEL_NAME: str | None = None
-    PROD_MODEL_NAME: str | None = None
-    DEFAULT_MODEL: str | None = None
+    DEV_MODEL_NAME: Optional[str] = None
+    PROD_MODEL_NAME: Optional[str] = None
+    DEFAULT_MODEL: Optional[str] = None
 
     # Provider selection
     AI_PROVIDER: str = 'huggingface'
-    AI_MODEL: str | None = None
+    AI_MODEL: Optional[str] = None
     OLLAMA_BASE_URL: str = 'http://localhost:11434'
 
     # OpenAI-compatible provider (Groq, Cerebras, OpenRouter, OpenAI, Mistral, ...)
-    OPENAI_API_KEY: str | None = None
+    OPENAI_API_KEY: Optional[str] = None
     OPENAI_BASE_URL: str = 'https://api.openai.com/v1'
 
     # Google Gemini provider
-    GEMINI_API_KEY: str | None = None
+    GEMINI_API_KEY: Optional[str] = None
     GEMINI_BASE_URL: str = 'https://generativelanguage.googleapis.com/v1beta'
 
     API_KEYS: Dict[str, Dict[str, Any]] = Field(default_factory=dict)

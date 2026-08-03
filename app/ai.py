@@ -93,10 +93,14 @@ class RAGAgent:
 
     def get_relevant_document(self, query: str, threshold: float = 0.5):
         """Get the most relevant document for a query."""
-        results = self.retriever.invoke(query)
+        if not self.retriever:
+            return None, 0.0
+        results = self.retriever.vector_store.similarity_search_with_relevance_scores(
+            query,
+            **self.retriever.search_kwargs
+        )
         if results:
-            top_result = results[0]
-            score = top_result.metadata.get("score", 0.0)
+            top_result, score = results[0]
             if score >= threshold:
                 return top_result, score
         return None, 0.0
