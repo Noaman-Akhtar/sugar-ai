@@ -15,6 +15,7 @@ from app.database import get_db, APIKey
 from app.ai import RAGAgent
 from app.providers.base import GenerationParams
 from app.config import settings
+from starlette.concurrency import run_in_threadpool
 
 # Pydantic models for chat completions
 class ChatMessage(BaseModel):
@@ -93,7 +94,7 @@ async def ask_question(
     logger.info(f"REQUEST - /ask - User: {user_info['name']} - IP: {client_ip} - Question: {question[:50]}...")
     
     try:
-        answer = agent.run(question)
+        answer = await agent.run(question)
         
         # log completion
         process_time = time.time() - start_time
@@ -131,7 +132,7 @@ async def ask_llm(
     logger.info(f"REQUEST - /ask-llm - User: {user_info['name']} - IP: {client_ip} - Question: {question[:50]}...")
     
     try:
-        answer = agent.provider.generate(question)
+        answer = await agent.provider.generate(question)
         
         process_time = time.time() - start_time
         logger.info(f"RESPONSE - User: {user_info['name']} - Success - Time: {process_time:.2f}s")
@@ -194,7 +195,7 @@ async def ask_llm_prompted(
                 truncation=request_data.truncation,
             )
 
-            answer = agent.run_chat_completion(
+            answer = await agent.run_chat_completion(
                 messages=messages_dict,
                 params=params,
             )
@@ -240,7 +241,7 @@ async def ask_llm_prompted(
                 truncation=request_data.truncation,
             )
 
-            answer = agent.run_with_custom_prompt(
+            answer = await agent.run_with_custom_prompt(
                 question=request_data.question,
                 custom_prompt=request_data.custom_prompt,
                 params=params,
@@ -283,7 +284,7 @@ async def debug(
     logger.info(f"REQUEST - /debug - User: {user_info['name']} - IP: {client_ip} - code: {code[:50]}...")
     
     try:
-        response = agent.debug(code, context)
+        response = await agent.debug(code, context)
         answer = response
         
         process_time = time.time() - start_time
@@ -330,7 +331,8 @@ async def change_model(
     try:
         from app.providers import create_provider
         from app.config import settings
-        new_provider = create_provider(
+        new_provider = await run_in_threadpool(
+            create_provider,
             provider_name=settings.AI_PROVIDER,
             model_name=model,
             quantize=True,
@@ -341,7 +343,7 @@ async def change_model(
             gemini_api_key=settings.GEMINI_API_KEY,
             gemini_base_url=settings.GEMINI_BASE_URL,
         )
-        agent.set_model(new_provider)
+        await agent.set_model(new_provider)
         logger.info(f"Model changed to {model} by {user_info['name']}")
         return {"message": f"Model changed to {model}", "user": user_info["name"]}
     except Exception as e:
@@ -357,7 +359,7 @@ async def health_check():
 
     try:
         model_name = agent.provider.get_model_name()
-        is_healthy = agent.provider.health_check()
+        is_healthy = await agent.provider.health_check()
 
         if is_healthy:
             return {

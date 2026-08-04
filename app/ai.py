@@ -22,6 +22,7 @@ from typing import Optional, List
 import app.prompts as prompts
 from app.config import settings
 from app.providers.base import BaseProvider, GenerationParams
+from starlette.concurrency import run_in_threadpool
 import logging
 
 logger = logging.getLogger("sugar-ai")
@@ -60,14 +61,14 @@ class RAGAgent:
         self.kids_debug_prompt_template = prompts.KIDS_DEBUG_PROMPT
         self.kids_context_prompt_template = prompts.KIDS_CONTEXT_PROMPT
 
-    def set_model(self, provider: BaseProvider) -> None:
+    async def set_model(self, provider: BaseProvider) -> None:
         """Update the current provider."""
         old_provider = self.provider
         self.provider = provider
         self.model_name = provider.get_model_name()
         if old_provider is not provider:
             try:
-                old_provider.close()
+                await old_provider.close()
             except Exception as e:
                 logger.warning("Failed to close previous provider: %s", e)
 
@@ -91,9 +92,9 @@ class RAGAgent:
         self.retriever = vector_store.as_retriever()
         return self.retriever
 
-    def get_relevant_document(self, query: str, threshold: float = 0.5):
+    async def get_relevant_document(self, query: str, threshold: float = 0.5):
         """Get the most relevant document for a query."""
-        results = self.retriever.invoke(query)
+        results = await run_in_threadpool(self.retriever.invoke, query)
         if results:
             top_result = results[0]
             score = top_result.metadata.get("score", 0.0)
@@ -101,26 +102,26 @@ class RAGAgent:
                 return top_result, score
         return None, 0.0
 
-    def debug(self, code: str, context: bool) -> str:
+    async def debug(self, code: str, context: bool) -> str:
         """Debug or explain python code using provider."""
         if context:
             context_prompt = self.context_prompt_template.format(code=code)
-            raw_context = self.provider.generate(context_prompt)
+            raw_context = await self.provider.generate(context_prompt)
 
             kids_prompt = self.kids_context_prompt_template.format(context_output=raw_context)
-            kid_friendly = self.provider.generate(kids_prompt)
+            kid_friendly = await self.provider.generate(kids_prompt)
             return kid_friendly
         else:
             debug_prompt = self.debug_prompt_template.format(code=code)
-            raw_debug = self.provider.generate(debug_prompt)
+            raw_debug = await self.provider.generate(debug_prompt)
 
             kids_prompt = self.kids_debug_prompt_template.format(debug_output=raw_debug)
-            kid_friendly = self.provider.generate(kids_prompt)
+            kid_friendly = await self.provider.generate(kids_prompt)
             return kid_friendly
 
-    def run(self, question: str) -> str:
+    async def run(self, question: str) -> str:
         """Process a question through the RAG pipeline."""
-        doc_result, _ = self.get_relevant_document(question)
+        doc_result, _ = await self.get_relevant_document(question)
         if doc_result:
             prompt = self.prompt_template.format(
                 question=question,
@@ -132,7 +133,7 @@ class RAGAgent:
                 context="No relevant documentation found."
             )
 
-        first_response = self.provider.generate(prompt)
+        first_response = await self.provider.generate(prompt)
 
         if "Child-friendly answer:" in first_response:
             first_response = first_response.split("Child-friendly answer:")[-1].strip()
@@ -140,21 +141,21 @@ class RAGAgent:
             first_response = first_response.split("Answer:")[-1].strip()
 
         child_prompt = self.child_prompt_template.format(original_answer=first_response)
-        final_response = self.provider.generate(child_prompt)
+        final_response = await self.provider.generate(child_prompt)
 
         if "Child-friendly answer:" in final_response:
             final_response = final_response.split("Child-friendly answer:")[-1].strip()
 
         return final_response
 
-    def run_with_custom_prompt(self, question: str, custom_prompt: str,
+    async def run_with_custom_prompt(self, question: str, custom_prompt: str,
                                params: Optional[GenerationParams] = None) -> str:
         """Process a question with custom prompt and parameters (no RAG)."""
         params = params or GenerationParams()
         full_prompt = f"{custom_prompt}\n\nQuestion: {question}\nAnswer:"
 
         try:
-            answer = self.provider.generate(full_prompt, params)
+            answer = await self.provider.generate(full_prompt, params)
 
             if "Answer:" in answer:
                 answer = answer.split("Answer:")[-1].strip()
@@ -164,13 +165,13 @@ class RAGAgent:
         except Exception as e:
             raise Exception(f"Error generating response with custom prompt: {str(e)}")
 
-    def run_chat_completion(self, messages: list,
+    async def run_chat_completion(self, messages: list,
                             params: Optional[GenerationParams] = None) -> str:
         """Process chat messages using the provider's chat interface."""
         params = params or GenerationParams()
 
         try:
-            answer = self.provider.chat(messages, params)
+            answer = await self.provider.chat(messages, params)
             return answer
         except Exception as e:
             raise Exception(f"Error generating chat completion: {str(e)}")
