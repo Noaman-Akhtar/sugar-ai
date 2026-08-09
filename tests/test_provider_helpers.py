@@ -77,3 +77,54 @@ def test_gemini_config_uses_gemini_field_names():
         "topP": 0.8,
         "topK": 10,
     }
+
+
+def test_gemini_converts_chat_messages_to_gemini_format():
+    provider = object.__new__(GeminiProvider)
+
+    contents, system_instruction = provider._to_gemini_contents(
+        [
+            {"role": "system", "content": "You are a patient tutor."},
+            {"role": "user", "content": "What is a loop?"},
+            {"role": "assistant", "content": "A loop repeats instructions."},
+        ]
+    )
+
+    assert system_instruction == "You are a patient tutor."
+    assert contents == [
+        {
+            "role": "user",
+            "parts": [{"text": "What is a loop?"}],
+        },
+        {
+            "role": "model",
+            "parts": [{"text": "A loop repeats instructions."}],
+        },
+    ]
+
+
+def test_gemini_extracts_text_from_all_response_parts():
+    provider = object.__new__(GeminiProvider)
+
+    text = provider._extract_text(
+        {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {"text": "Hello"},
+                            {"text": ", learner!"},
+                        ]
+                    }
+                }
+            ]
+        }
+    )
+
+    assert text == "Hello, learner!"
+
+
+def test_gemini_returns_empty_text_when_response_has_no_candidates():
+    provider = object.__new__(GeminiProvider)
+
+    assert provider._extract_text({}) == ""
