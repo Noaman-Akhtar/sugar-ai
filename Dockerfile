@@ -17,7 +17,7 @@ RUN apt-get update && \
 
 RUN mkdir -p /tmp/wheels && \
     for attempt in 1 2 3 4 5 6 7 8 9 10; do \
-        if pip download --dest /tmp/wheels -r requirements/cuda.txt "fastapi[standard]"; then \
+        if pip download --dest /tmp/wheels -r requirements/cuda.txt; then \
             break; \
         fi; \
         if [ "$attempt" = "10" ]; then \
@@ -26,10 +26,7 @@ RUN mkdir -p /tmp/wheels && \
         echo "Dependency download attempt $attempt failed; retrying..." >&2; \
     done && \
     pip install --no-index --find-links=/tmp/wheels \
-        -r requirements/base.txt \
-        torch==2.12.1 \
-        bitsandbytes==0.49.2 \
-        "fastapi[standard]==0.138.2"
+        -r requirements/cuda.txt
 
 
 FROM nvidia/cuda:12.8.0-runtime-ubuntu22.04 AS runtime
