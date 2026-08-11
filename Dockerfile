@@ -1,9 +1,9 @@
-# builder
 FROM nvidia/cuda:12.8.0-devel-ubuntu22.04 AS builder
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY requirements.txt ./
+COPY requirements/ ./requirements/
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -15,11 +15,24 @@ RUN apt-get update && \
         libdbus-1-dev && \
     rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir "fastapi[standard]"
+RUN mkdir -p /tmp/wheels && \
+    for attempt in 1 2 3 4 5 6 7 8 9 10; do \
+        if pip download --dest /tmp/wheels -r requirements/cuda.txt "fastapi[standard]"; then \
+            break; \
+        fi; \
+        if [ "$attempt" = "10" ]; then \
+            exit 1; \
+        fi; \
+        echo "Dependency download attempt $attempt failed; retrying..." >&2; \
+    done && \
+    pip install --no-index --find-links=/tmp/wheels \
+        -r requirements/base.txt \
+        torch==2.12.1 \
+        bitsandbytes==0.49.2 \
+        "fastapi[standard]==0.138.2"
 
-# runtime here
-FROM nvidia/cuda:12.8.0-runtime-ubuntu22.04
+
+FROM nvidia/cuda:12.8.0-runtime-ubuntu22.04 AS runtime
 
 WORKDIR /app
 
@@ -40,8 +53,9 @@ COPY templates/ ./templates/
 COPY static/ ./static/
 COPY docs/ ./docs/
 COPY app/ ./app/
-COPY .env* ./
+
 RUN mkdir -p /app/data
+
 EXPOSE 8000
 ENV PYTHONUNBUFFERED=1
 
