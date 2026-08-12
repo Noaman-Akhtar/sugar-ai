@@ -128,3 +128,19 @@ def test_gemini_returns_empty_text_when_response_has_no_candidates():
     provider = object.__new__(GeminiProvider)
 
     assert provider._extract_text({}) == ""
+
+
+def test_base_provider_returns_its_configured_model_name():
+    provider = object.__new__(BaseProvider)
+    provider.model_name = "test-model"
+
+    assert provider.get_model_name() == "test-model"
+
+
+def test_base_provider_has_no_known_eos_token():
+    provider = object.__new__(BaseProvider)
+
+    assert provider.get_eos_token() is None
+
+
+    
