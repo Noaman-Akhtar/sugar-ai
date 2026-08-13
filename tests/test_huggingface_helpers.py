@@ -75,3 +75,20 @@ def test_huggingface_maps_assistant_role_to_model_for_gemma():
         {"role": "user", "content": "What is a loop?"},
         {"role": "model", "content": "It repeats instructions."},
     ]
+
+
+def test_huggingface_prepends_system_message_when_assistant_starts():
+    provider = object.__new__(HuggingFaceProvider)
+    provider.model_name = "test-model"
+
+    messages = provider._normalize_chat_messages(
+        [
+            {"role": "system", "content": "Be concise."},
+            {"role": "assistant", "content": "Here is an answer."},
+        ]
+    )
+
+    assert messages == [
+        {"role": "user", "content": "Be concise."},
+        {"role": "assistant", "content": "Here is an answer."},
+    ]
