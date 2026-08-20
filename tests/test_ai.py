@@ -16,7 +16,7 @@ class TestRAGAgentRelevance(unittest.TestCase):
         # Mock retriever and its underlying vector store
         self.mock_retriever = MagicMock()
         self.mock_vector_store = MagicMock()
-        self.mock_retriever.vector_store = self.mock_vector_store
+        self.mock_retriever.vectorstore = self.mock_vector_store
         self.mock_retriever.search_kwargs = {"k": 3}
         self.agent.retriever = self.mock_retriever
 

@@ -95,7 +95,7 @@ class RAGAgent:
         """Get the most relevant document for a query."""
         if not self.retriever:
             return None, 0.0
-        results = self.retriever.vector_store.similarity_search_with_relevance_scores(
+        results = self.retriever.vectorstore.similarity_search_with_relevance_scores(
             query,
             **self.retriever.search_kwargs
         )
