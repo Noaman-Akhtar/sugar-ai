@@ -21,6 +21,8 @@ from typing import Annotated, Literal, TypeAlias
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.config import settings
+
 
 MAX_IMAGE_BYTES = 1024 * 1024
 MAX_IMAGES_PER_REQUEST = 4
@@ -106,10 +108,27 @@ class ResponseMessage(BaseModel):
         return self
 
 
+class GenerationOptions(BaseModel):
+    """Provider-neutral controls for one response generation."""
+
+    max_new_tokens: int = Field(default=1024, gt=0)
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+
+    @model_validator(mode="after")
+    def max_new_tokens_must_be_within_server_limit(self) -> "GenerationOptions":
+        if self.max_new_tokens > settings.MAX_RESPONSE_OUTPUT_TOKENS:
+            raise ValueError(
+                "max_new_tokens must not exceed the server output token limit"
+            )
+        return self
+
+
 class ResponsesRequest(BaseModel):
     """The initial request envelope for the versioned responses endpoint."""
 
     messages: list[ResponseMessage] = Field(min_length=1)
+    generation: GenerationOptions = Field(default_factory=GenerationOptions)
+    response_format: Literal["text", "json_object"] = "text"
 
     @model_validator(mode="after")
     def validate_request_image_limits(self) -> "ResponsesRequest":
