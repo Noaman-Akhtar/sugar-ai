@@ -19,7 +19,12 @@ import base64
 import binascii
 from typing import Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+MAX_IMAGE_BYTES = 1024 * 1024
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+_JPEG_SIGNATURE = b"\xff\xd8\xff"
 
 
 class TextPart(BaseModel):
@@ -55,3 +60,27 @@ class Base64Source(BaseModel):
     def decoded_bytes(self) -> bytes:
         """Return decoded bytes without logging the original media data."""
         return base64.b64decode(self.data, validate=True)
+
+
+class ImagePart(BaseModel):
+    """An inline PNG or JPEG image supplied by an activity."""
+
+    type: Literal["image"]
+    media_type: Literal["image/png", "image/jpeg"]
+    source: Base64Source
+    label: str | None = Field(default=None, max_length=120)
+
+    @model_validator(mode="after")
+    def validate_image(self) -> "ImagePart":
+        image_bytes = self.source.decoded_bytes()
+
+        if len(image_bytes) > MAX_IMAGE_BYTES:
+            raise ValueError("image data must not exceed 1 MiB")
+
+        if self.media_type == "image/png" and not image_bytes.startswith(_PNG_SIGNATURE):
+            raise ValueError("image/png data must have a PNG signature")
+
+        if self.media_type == "image/jpeg" and not image_bytes.startswith(_JPEG_SIGNATURE):
+            raise ValueError("image/jpeg data must have a JPEG signature")
+
+        return self
