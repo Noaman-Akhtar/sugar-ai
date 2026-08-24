@@ -18,13 +18,24 @@
 import httpx
 import logging
 from dataclasses import dataclass
-from typing import Optional
+from typing import Literal, Optional
 
 logger = logging.getLogger("sugar-ai")
 
 # Cloud APIs are usually fast, but allow headroom for cold routes / rate-limit
 # retries handled upstream. 120s is generous without hanging forever.
 _DEFAULT_TIMEOUT = 120.0
+
+InputModality = Literal["text", "image"]
+ResponseFormat = Literal["text", "json_object"]
+
+
+class UnsupportedModalityError(ValueError):
+    """Raised when a provider cannot accept required input content."""
+
+
+class UnsupportedResponseFormatError(ValueError):
+    """Raised when a provider cannot reliably produce a requested format."""
 
 
 @dataclass(frozen=True)
@@ -104,6 +115,20 @@ class BaseProvider:
 
     def get_model_name(self) -> str:
         return self.model_name
+
+    def supported_input_modalities(self) -> frozenset[InputModality]:
+        """Return input modalities this provider can handle safely."""
+        return frozenset({"text"})
+
+    def supports_input_modalities(
+        self, required_modalities: set[InputModality]
+    ) -> bool:
+        """Return whether every required input modality is supported."""
+        return required_modalities <= self.supported_input_modalities()
+
+    def supports_response_format(self, response_format: ResponseFormat) -> bool:
+        """Return whether this provider can reliably produce the format."""
+        return response_format == "text"
 
     def health_check(self) -> bool:
         """Verify the endpoint is reachable and the key/model are valid."""
