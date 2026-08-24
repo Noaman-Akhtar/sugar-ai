@@ -20,6 +20,8 @@ import logging
 from dataclasses import dataclass
 from typing import Literal, Optional
 
+from app.multimodal import NormalizedImage, NormalizedMessage
+
 logger = logging.getLogger("sugar-ai")
 
 # Cloud APIs are usually fast, but allow headroom for cold routes / rate-limit
@@ -36,6 +38,14 @@ class UnsupportedModalityError(ValueError):
 
 class UnsupportedResponseFormatError(ValueError):
     """Raised when a provider cannot reliably produce a requested format."""
+
+
+@dataclass(frozen=True)
+class ProviderResponse:
+    """Provider-neutral generated text and its completion state."""
+
+    text: str
+    status: Literal["completed", "incomplete"]
 
 
 @dataclass(frozen=True)
@@ -129,6 +139,35 @@ class BaseProvider:
     def supports_response_format(self, response_format: ResponseFormat) -> bool:
         """Return whether this provider can reliably produce the format."""
         return response_format == "text"
+
+    def generate_multimodal(
+        self,
+        messages: tuple[NormalizedMessage, ...],
+        params: Optional[GenerationParams] = None,
+        response_format: ResponseFormat = "text",
+    ) -> ProviderResponse:
+        """Generate from normalized messages in a provider-specific adapter."""
+        required_modalities: set[InputModality] = {"text"}
+        if any(
+            isinstance(part, NormalizedImage)
+            for message in messages
+            for part in message.content
+        ):
+            required_modalities.add("image")
+
+        if not self.supports_input_modalities(required_modalities):
+            unsupported_modalities = required_modalities - self.supported_input_modalities()
+            raise UnsupportedModalityError(
+                f"{type(self).__name__} does not support "
+                f"{', '.join(sorted(unsupported_modalities))} input"
+            )
+        if not self.supports_response_format(response_format):
+            raise UnsupportedResponseFormatError(
+                f"{type(self).__name__} does not support {response_format} responses"
+            )
+        raise UnsupportedModalityError(
+            f"{type(self).__name__} has not implemented normalized message generation"
+        )
 
     def health_check(self) -> bool:
         """Verify the endpoint is reachable and the key/model are valid."""

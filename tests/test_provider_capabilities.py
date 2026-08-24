@@ -13,7 +13,14 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-from app.providers.base import BaseProvider
+import pytest
+
+from app.multimodal import NormalizedImage, NormalizedMessage, NormalizedText
+from app.providers.base import (
+    BaseProvider,
+    ProviderResponse,
+    UnsupportedModalityError,
+)
 
 
 def provider() -> BaseProvider:
@@ -33,3 +40,36 @@ def test_base_provider_declares_text_only_response_support() -> None:
 
     assert test_provider.supports_response_format("text")
     assert not test_provider.supports_response_format("json_object")
+
+
+def test_base_provider_rejects_unimplemented_normalized_generation() -> None:
+    test_provider = provider()
+    messages = (NormalizedMessage(
+        role="user",
+        content=(NormalizedText(text="Hello"),),
+    ),)
+
+    with pytest.raises(UnsupportedModalityError, match="has not implemented"):
+        test_provider.generate_multimodal(messages)
+
+
+def test_base_provider_rejects_images_before_attempting_generation() -> None:
+    test_provider = provider()
+    messages = (NormalizedMessage(
+        role="user",
+        content=(NormalizedImage(
+            data=b"\x89PNG\r\n\x1a\nimage",
+            media_type="image/png",
+            label=None,
+        ),),
+    ),)
+
+    with pytest.raises(UnsupportedModalityError, match="does not support image input"):
+        test_provider.generate_multimodal(messages)
+
+
+def test_provider_response_preserves_incomplete_status() -> None:
+    response = ProviderResponse(text="Partial answer", status="incomplete")
+
+    assert response.text == "Partial answer"
+    assert response.status == "incomplete"
