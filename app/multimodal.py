@@ -17,6 +17,7 @@
 
 import base64
 import binascii
+from dataclasses import dataclass
 from typing import Annotated, Literal, TypeAlias
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -147,3 +148,48 @@ class ResponsesRequest(BaseModel):
             raise ValueError("total image data must not exceed 2 MiB")
 
         return self
+
+
+@dataclass(frozen=True)
+class NormalizedText:
+    """Text prepared for a provider without public request metadata."""
+
+    text: str
+
+
+@dataclass(frozen=True)
+class NormalizedImage:
+    """Decoded image data prepared for a provider adapter."""
+
+    data: bytes
+    media_type: Literal["image/png", "image/jpeg"]
+    label: str | None
+
+
+NormalizedContentPart: TypeAlias = NormalizedText | NormalizedImage
+
+
+@dataclass(frozen=True)
+class NormalizedMessage:
+    """A provider-neutral message containing text and decoded images."""
+
+    role: Literal["system", "user", "assistant"]
+    content: tuple[NormalizedContentPart, ...]
+
+
+def normalize_messages(request: ResponsesRequest) -> tuple[NormalizedMessage, ...]:
+    """Convert a validated public request into provider-neutral message data."""
+    messages = []
+    for message in request.messages:
+        content: list[NormalizedContentPart] = []
+        for part in message.content:
+            if isinstance(part, TextPart):
+                content.append(NormalizedText(text=part.text))
+            else:
+                content.append(NormalizedImage(
+                    data=part.source.decoded_bytes(),
+                    media_type=part.media_type,
+                    label=part.label,
+                ))
+        messages.append(NormalizedMessage(role=message.role, content=tuple(content)))
+    return tuple(messages)
