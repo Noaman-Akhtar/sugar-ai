@@ -17,12 +17,14 @@
 
 import base64
 import binascii
-from typing import Literal
+from typing import Annotated, Literal, TypeAlias
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 MAX_IMAGE_BYTES = 1024 * 1024
+MAX_IMAGES_PER_REQUEST = 4
+MAX_TOTAL_IMAGE_BYTES = 2 * 1024 * 1024
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _JPEG_SIGNATURE = b"\xff\xd8\xff"
 
@@ -82,5 +84,47 @@ class ImagePart(BaseModel):
 
         if self.media_type == "image/jpeg" and not image_bytes.startswith(_JPEG_SIGNATURE):
             raise ValueError("image/jpeg data must have a JPEG signature")
+
+        return self
+
+
+ContentPart: TypeAlias = Annotated[TextPart | ImagePart, Field(discriminator="type")]
+
+
+class ResponseMessage(BaseModel):
+    """One role-labelled message in a multimodal response request."""
+
+    role: Literal["system", "user", "assistant"]
+    content: list[ContentPart] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def images_must_be_in_user_messages(self) -> "ResponseMessage":
+        if self.role != "user" and any(
+            isinstance(part, ImagePart) for part in self.content
+        ):
+            raise ValueError("image parts are allowed only in user messages")
+        return self
+
+
+class ResponsesRequest(BaseModel):
+    """The initial request envelope for the versioned responses endpoint."""
+
+    messages: list[ResponseMessage] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_request_image_limits(self) -> "ResponsesRequest":
+        images = [
+            part
+            for message in self.messages
+            for part in message.content
+            if isinstance(part, ImagePart)
+        ]
+
+        if len(images) > MAX_IMAGES_PER_REQUEST:
+            raise ValueError("a request must not contain more than four images")
+
+        total_image_bytes = sum(len(image.source.decoded_bytes()) for image in images)
+        if total_image_bytes > MAX_TOTAL_IMAGE_BYTES:
+            raise ValueError("total image data must not exceed 2 MiB")
 
         return self
