@@ -15,10 +15,12 @@
 
 
 """Google Gemini provider for Sugar-AI."""
+import base64
 import httpx
 import logging
 from typing import Optional
 
+from app.multimodal import NormalizedImage, NormalizedMessage, NormalizedText
 from app.providers.base import BaseProvider, GenerationParams
 
 logger = logging.getLogger("sugar-ai")
@@ -112,6 +114,36 @@ class GeminiProvider(BaseProvider):
                 continue
             gemini_role = "model" if role == "assistant" else "user"
             contents.append({"role": gemini_role, "parts": [{"text": text}]})
+        return contents, "\n\n".join(system_parts)
+
+    def _normalized_to_gemini_contents(
+        self, messages: tuple[NormalizedMessage, ...]
+    ) -> tuple[list[dict], str]:
+        """Translate normalized text and images into Gemini content parts."""
+        contents = []
+        system_parts = []
+        for message in messages:
+            if message.role == "system":
+                system_parts.extend(
+                    part.text
+                    for part in message.content
+                    if isinstance(part, NormalizedText)
+                )
+                continue
+
+            parts = []
+            for part in message.content:
+                if isinstance(part, NormalizedText):
+                    parts.append({"text": part.text})
+                elif isinstance(part, NormalizedImage):
+                    parts.append({"inlineData": {
+                        "mimeType": part.media_type,
+                        "data": base64.b64encode(part.data).decode("ascii"),
+                    }})
+
+            gemini_role = "model" if message.role == "assistant" else "user"
+            contents.append({"role": gemini_role, "parts": parts})
+
         return contents, "\n\n".join(system_parts)
 
     def _extract_text(self, data: dict) -> str:
