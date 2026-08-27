@@ -18,10 +18,16 @@
 import base64
 import httpx
 import logging
-from typing import Optional
+from typing import Literal, Optional
 
 from app.multimodal import NormalizedImage, NormalizedMessage, NormalizedText
-from app.providers.base import BaseProvider, GenerationParams
+from app.providers.base import (
+    BaseProvider,
+    GenerationParams,
+    InputModality,
+    ProviderResponse,
+    ResponseFormat,
+)
 
 logger = logging.getLogger("sugar-ai")
 
@@ -86,6 +92,50 @@ class GeminiProvider(BaseProvider):
         response.raise_for_status()
 
         return self._extract_text(response.json())
+
+    def supported_input_modalities(self) -> frozenset[InputModality]:
+        """Gemini models configured for this provider accept text and images."""
+        return frozenset({"text", "image"})
+
+    def supports_response_format(self, response_format: ResponseFormat) -> bool:
+        """Gemini can request either normal text or JSON-object output."""
+        return response_format in {"text", "json_object"}
+
+    def generate_multimodal(
+        self,
+        messages: tuple[NormalizedMessage, ...],
+        params: Optional[GenerationParams] = None,
+        response_format: ResponseFormat = "text",
+    ) -> ProviderResponse:
+        """Generate a response from normalized text and image messages."""
+        if params is None:
+            params = GenerationParams()
+
+        contents, system_instruction = self._normalized_to_gemini_contents(messages)
+        generation_config = self._params_to_config(params)
+        if response_format == "json_object":
+            generation_config["responseMimeType"] = "application/json"
+
+        payload = {
+            "contents": contents,
+            "generationConfig": generation_config,
+        }
+        if system_instruction:
+            payload["systemInstruction"] = {
+                "parts": [{"text": system_instruction}]
+            }
+
+        response = self._client.post(
+            f"{self.base_url}/models/{self.model_name}:generateContent",
+            json=payload,
+        )
+        response.raise_for_status()
+
+        response_data = response.json()
+        return ProviderResponse(
+            text=self._extract_text(response_data),
+            status=self._completion_status(response_data),
+        )
 
     def health_check(self) -> bool:
         """Check if the endpoint is reachable and the key/model are valid."""
@@ -153,6 +203,15 @@ class GeminiProvider(BaseProvider):
             return ""
         parts = candidates[0].get("content", {}).get("parts", [])
         return "".join(part.get("text", "") for part in parts).strip()
+
+    def _completion_status(self, data: dict) -> Literal["completed", "incomplete"]:
+        """Map Gemini finish reasons to Sugar-AI's safe completion state."""
+        candidates = data.get("candidates", [])
+        if not candidates:
+            return "incomplete"
+        if candidates[0].get("finishReason") == "STOP":
+            return "completed"
+        return "incomplete"
 
     def _params_to_config(self, params: GenerationParams) -> dict:
         """Convert GenerationParams to Gemini's generationConfig format."""
