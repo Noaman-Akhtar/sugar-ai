@@ -27,7 +27,6 @@ class PromptedLLMRequest(BaseModel):
     question: Optional[str] = Field(None, description="The question to ask (required if chat=False)")
     custom_prompt: Optional[str] = Field(None, description="Custom prompt to replace system prompt (required if chat=False)")
     messages: Optional[List[ChatMessage]] = Field(None, description="List of chat messages (required if chat=True)")
-    
     # Boundary validation added below:
     max_length: int = Field(1024, gt=0, le=8192, description="Maximum length of generated text")
     truncation: bool = Field(True, description="Whether to truncate input if too long")
