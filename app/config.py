@@ -36,7 +36,12 @@ class Settings(BaseSettings):
     # Reasoning shares the output token budget with the answer. When think is on,
     # add this many tokens on top of the caller's max_length so reasoning cannot
     # starve the answer to empty. Tune per model (larger models need less).
-    THINKING_HEADROOM: int = 2048
+    THINKING_HEADROOM: int = Field(
+        2048,
+        ge=0,
+        le=8192,
+        description="Extra output tokens reserved for reasoning",
+    )
 
     # OAuth
     github_client_id: Optional[str] = None

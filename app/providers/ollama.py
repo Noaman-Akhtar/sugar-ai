@@ -111,21 +111,31 @@ class OllamaProvider(BaseProvider):
         think field, so drop it and retry to return a normal answer instead
         of failing.
         """
-        try:
+        response = self._client.post(f"{self.base_url}{path}", json=payload)
+
+        if "think" in payload and self._is_thinking_unsupported(response):
+            payload.pop("think")
+            logger.warning(
+                "Model %s does not support thinking; retrying without it.",
+                self.model_name,
+            )
             response = self._client.post(f"{self.base_url}{path}", json=payload)
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPStatusError:
-            if "think" in payload:
-                payload.pop("think")
-                logger.warning(
-                    "Model %s rejected the think flag; retrying without it.",
-                    self.model_name,
-                )
-                response = self._client.post(f"{self.base_url}{path}", json=payload)
-                response.raise_for_status()
-                return response.json()
-            raise
+
+        response.raise_for_status()
+        return response.json()
+
+    @staticmethod
+    def _is_thinking_unsupported(response: httpx.Response) -> bool:
+        """Return whether Ollama rejected the request because think is unsupported."""
+        if response.status_code != httpx.codes.BAD_REQUEST:
+            return False
+
+        try:
+            error = response.json().get("error", "")
+        except (ValueError, AttributeError):
+            return False
+
+        return isinstance(error, str) and "does not support thinking" in error.lower()
 
     def _params_to_options(self, params: GenerationParams) -> dict:
         """Convert GenerationParams to Ollama's options format."""
