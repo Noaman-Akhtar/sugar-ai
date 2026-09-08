@@ -8,13 +8,18 @@ import time
 import logging
 import os
 import json
+import uuid
 from datetime import datetime
 from typing import Dict, Optional, List
 
 from app.database import get_db, APIKey
 from app.ai import RAGAgent
-from app.multimodal import ImagePart, ResponsesRequest
-from app.providers.base import GenerationParams
+from app.multimodal import ImagePart, ResponsesRequest, normalize_messages
+from app.providers.base import (
+    GenerationParams,
+    UnsupportedModalityError,
+    UnsupportedResponseFormatError,
+)
 from app.config import settings
 
 # Pydantic models for chat completions
@@ -376,6 +381,142 @@ async def change_model(
     except Exception as e:
         logger.error(f"Error changing model to {model} by {user_info['name']}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error changing model: {str(e)}")
+
+
+@router.post("/v1/responses")
+async def create_response(
+    request_data: ResponsesRequest,
+    api_key: str = Depends(authenticate_api_key),
+    request: Request = None,
+):
+    """Generate a response from typed text and image content parts.
+
+    The versioned contract for activities: validation happens before any
+    quota is spent, capability failures are clear client errors, and media
+    bytes never reach the logs.
+    """
+    client_ip = request.client.host if request else "unknown"
+    user_name = settings.API_KEYS[api_key]["name"]
+    image_count = sum(
+        1
+        for message in request_data.messages
+        for part in message.content
+        if isinstance(part, ImagePart)
+    )
+    logger.info(
+        f"REQUEST - /v1/responses - User: {user_name} - IP: {client_ip} - "
+        f"Messages: {len(request_data.messages)} - Images: {image_count} - "
+        f"Format: {request_data.response_format}"
+    )
+
+    provider = agent.provider
+    required_modalities = {"text"}
+    if image_count:
+        required_modalities.add("image")
+
+    # Refuse impossible requests before spending any quota.
+    if not provider.supports_input_modalities(required_modalities):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "unsupported_modality",
+                "message": "The configured provider does not accept image input",
+            },
+        )
+    if not provider.supports_response_format(request_data.response_format):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "unsupported_response_format",
+                "message": (
+                    "The configured provider does not support "
+                    f"{request_data.response_format} responses"
+                ),
+            },
+        )
+
+    units = request_quota_units(request_data)
+    if not consume_quota_units(api_key, units):
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "insufficient_quota",
+                "message": "Daily request quota exceeded",
+            },
+        )
+
+    generation = request_data.generation
+    if generation.temperature is None:
+        params = GenerationParams(max_new_tokens=generation.max_new_tokens)
+    else:
+        params = GenerationParams(
+            max_new_tokens=generation.max_new_tokens,
+            temperature=generation.temperature,
+        )
+
+    start_time = time.time()
+    try:
+        result = agent.run_multimodal(
+            normalize_messages(request_data),
+            params=params,
+            response_format=request_data.response_format,
+        )
+    except UnsupportedModalityError as error:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "unsupported_modality", "message": str(error)},
+        )
+    except UnsupportedResponseFormatError as error:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "unsupported_response_format", "message": str(error)},
+        )
+    except Exception as error:
+        logger.error(f"ERROR - /v1/responses - User: {user_name} - Error: {str(error)}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "provider_error",
+                "message": "Error generating response",
+            },
+        )
+
+    process_time = time.time() - start_time
+    logger.info(
+        f"RESPONSE - /v1/responses - User: {user_name} - Status: {result.status} - "
+        f"Time: {process_time:.2f}s"
+    )
+
+    if request_data.response_format == "json_object":
+        try:
+            parsed = json.loads(result.text)
+        except json.JSONDecodeError:
+            parsed = None
+        if not isinstance(parsed, dict):
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "code": "invalid_provider_output",
+                    "message": "The provider did not return a valid JSON object",
+                },
+            )
+        output = [{"type": "json", "json": parsed}]
+    else:
+        output = [{"type": "text", "text": result.text}]
+
+    body = {
+        "id": f"resp_{uuid.uuid4().hex}",
+        "status": result.status,
+        "output": output,
+        "quota": {
+            "used_units": units,
+            "remaining_units": remaining_quota_units(api_key),
+            "daily_limit_units": settings.MAX_DAILY_REQUESTS,
+        },
+    }
+    if result.status == "incomplete":
+        body["incomplete_reason"] = "output_limit"
+    return body
 
 
 @router.get("/health")
