@@ -70,7 +70,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 
 ### Test API endpoints
 
-Sugar-AI provides three different endpoints for different use cases:
+Sugar-AI provides the following endpoints for different use cases:
 
 | Endpoint | Purpose | Input Format | Features |
 |----------|---------|--------------|----------|
@@ -78,6 +78,7 @@ Sugar-AI provides three different endpoints for different use cases:
 | `/ask-llm` | Direct LLM without RAG | Query parameter | • No document retrieval<br>• Direct model access<br>• Faster responses<br>• Default system prompt and parameters |
 | `/ask-llm-prompted(promoted mode[default])` | Custom prompt with advanced controls | JSON body | • Custom system prompts<br>• Configurable model parameters |
 | `/ask-llm-prompted(chat=True)` | Accepts chat history with system prompt | JSON body | • Send chat history along with system prompt<br>• Configurable model parameters |
+| `/v1/responses` | Versioned generic contract for activities | JSON body | • Typed text and image content parts<br>• Opt-in documentation retrieval<br>• Opt-in child-friendly rewriting<br>• Structured error codes and quota units |
 
 - **GET endpoint**
 
@@ -247,6 +248,70 @@ Sugar-AI provides three different endpoints for different use cases:
     - **For Code**: `temperature: 0.2-0.4, top_p: 0.8, repetition_penalty: 1.1`
     - **For Creative Content**: `temperature: 0.7-0.9, top_p: 0.9, repetition_penalty: 1.2`
     - **For Factual Answers**: `temperature: 0.3-0.5, top_p: 0.7, repetition_penalty: 1.0`
+
+- **Versioned contract endpoint (/v1/responses)**
+
+    The generic, versioned way for activities to talk to Sugar-AI. One request
+    shape covers plain questions, custom prompts, chat history, and inline
+    images; the server translates it to whatever provider is configured.
+    Fields are only ever added to a `v1` response, never removed or renamed.
+
+    **Basic usage (text):**
+    ```sh
+    curl -X POST "http://localhost:8000/v1/responses" \
+      -H "X-API-Key: sugarai2024" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "messages": [
+          {"role": "system", "content": [{"type": "text", "text": "You are a friendly teacher."}]},
+          {"role": "user", "content": [{"type": "text", "text": "How do I create a Pygame window?"}]}
+        ]
+      }'
+    ```
+
+    **With an inline image (PNG or JPEG, Base64, max 4 images / 1 MiB each):**
+    ```json
+    {
+      "messages": [
+        {"role": "user", "content": [
+          {"type": "text", "text": "What do you notice in this drawing?"},
+          {"type": "image", "media_type": "image/png",
+           "source": {"type": "base64", "data": "iVBORw0KGgo..."}}
+        ]}
+      ]
+    }
+    ```
+
+    **Request fields:**
+    - `messages` (required): list of `{role, content}` where `content` is a list of typed parts (`text`, `image`). Image parts are allowed only in `user` messages.
+    - `generation` (optional): `max_new_tokens`, `temperature`, `top_p`, `top_k`, `repetition_penalty`, `truncation` — same meaning and defaults as the legacy endpoints.
+    - `response_format` (optional, default `"text"`): `"text"` or `"json_object"` (validated JSON object output).
+    - `retrieval` (optional, default false): the server looks up Sugar documentation for the last user message and passes it to the model as extra context.
+    - `child_friendly` (optional, default false): the server rewrites the answer in simple language for children (text responses only).
+
+    **Response format:**
+    ```json
+    {
+      "id": "resp_1a2b3c...",
+      "status": "completed",
+      "output": [{"type": "text", "text": "You can create a Pygame window by..."}],
+      "quota": {"used_units": 1, "remaining_units": 97, "daily_limit_units": 100}
+    }
+    ```
+    - `status` is `"completed"`, or `"incomplete"` (with `incomplete_reason: "output_limit"`) when the model hit its output limit — a truncated answer is never presented as finished.
+    - With `response_format: "json_object"` the output part is `{"type": "json", "json": {...}}`.
+
+    **Quota units:** a request costs 1 unit plus 2 per image. Requests rejected during validation or capability checks cost nothing.
+
+    **Errors** carry a machine-readable code in `detail.code` so activities never parse message text:
+    - `unsupported_modality` (422): the configured provider cannot accept images
+    - `unsupported_response_format` (422): the provider cannot produce the requested format
+    - `insufficient_quota` (429): not enough units left today
+    - `invalid_provider_output` (502): the model's JSON output was not a valid JSON object
+    - `provider_error` (500): the upstream provider failed
+
+    Requests with audio parts are rejected: audio is reserved for a future
+    version of the contract.
 
 ### API Authentication
 
