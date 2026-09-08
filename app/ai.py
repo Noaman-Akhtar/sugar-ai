@@ -21,7 +21,13 @@ from langchain_community.document_loaders import PyMuPDFLoader, TextLoader
 from typing import Optional, List
 import app.prompts as prompts
 from app.config import settings
-from app.providers.base import BaseProvider, GenerationParams
+from app.multimodal import NormalizedMessage
+from app.providers.base import (
+    BaseProvider,
+    GenerationParams,
+    ProviderResponse,
+    ResponseFormat,
+)
 import logging
 
 logger = logging.getLogger("sugar-ai")
@@ -178,6 +184,19 @@ class RAGAgent:
             return answer
         except Exception as e:
             raise Exception(f"Error generating chat completion: {str(e)}")
+
+    def run_multimodal(
+        self,
+        messages: tuple[NormalizedMessage, ...],
+        params: Optional[GenerationParams] = None,
+        response_format: ResponseFormat = "text",
+    ) -> ProviderResponse:
+        """Delegate normalized multimodal generation to the selected provider."""
+        return self.provider.generate_multimodal(
+            messages,
+            params=params,
+            response_format=response_format,
+        )
 
     def _truncate_at_eos(self, text: str) -> str:
         """Trim model output at an explicit end-of-sequence token."""
