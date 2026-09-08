@@ -191,15 +191,50 @@ class RAGAgent:
         params: Optional[GenerationParams] = None,
         response_format: ResponseFormat = "text",
         retrieval: bool = False,
+        child_friendly: bool = False,
     ) -> ProviderResponse:
         """Delegate normalized multimodal generation to the selected provider."""
         if retrieval:
             messages = self._with_retrieved_context(messages)
-        return self.provider.generate_multimodal(
+        result = self.provider.generate_multimodal(
             messages,
             params=params,
             response_format=response_format,
         )
+        if child_friendly and response_format == "text":
+            result = self._rewrite_child_friendly(result, params)
+        return result
+
+    def _rewrite_child_friendly(
+        self,
+        result: ProviderResponse,
+        params: Optional[GenerationParams],
+    ) -> ProviderResponse:
+        """Rewrite a completed answer in child-friendly language.
+
+        Two passes because small models handle one instruction at a time
+        better than a compound one. A truncated first answer is returned
+        as-is: rewriting it would hide that it is incomplete.
+        """
+        if result.status != "completed" or not result.text.strip():
+            return result
+
+        rewrite_prompt = self.child_prompt_template.format(
+            original_answer=result.text
+        )
+        rewritten = self.provider.generate_multimodal(
+            (NormalizedMessage(
+                role="user",
+                content=(NormalizedText(text=rewrite_prompt),),
+            ),),
+            params=params,
+            response_format="text",
+        )
+
+        text = rewritten.text
+        if "Child-friendly answer:" in text:
+            text = text.split("Child-friendly answer:")[-1].strip()
+        return ProviderResponse(text=text, status=rewritten.status)
 
     def _with_retrieved_context(
         self, messages: tuple[NormalizedMessage, ...]

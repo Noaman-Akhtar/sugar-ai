@@ -140,6 +140,15 @@ class ResponsesRequest(BaseModel):
     generation: GenerationOptions = Field(default_factory=GenerationOptions)
     response_format: Literal["text", "json_object"] = "text"
     retrieval: bool = False
+    child_friendly: bool = False
+
+    @model_validator(mode="after")
+    def child_friendly_requires_text_output(self) -> "ResponsesRequest":
+        if self.child_friendly and self.response_format != "text":
+            raise ValueError(
+                "child_friendly rewriting only applies to text responses"
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_request_image_limits(self) -> "ResponsesRequest":

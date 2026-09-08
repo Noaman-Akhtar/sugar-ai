@@ -83,6 +83,21 @@ def test_responses_request_accepts_json_object_format_and_temperature() -> None:
     assert request.response_format == "json_object"
 
 
+def test_responses_request_flags_default_to_off() -> None:
+    request = ResponsesRequest.model_validate(request_data())
+
+    assert request.retrieval is False
+    assert request.child_friendly is False
+
+
+def test_responses_request_rejects_child_friendly_json_output() -> None:
+    with pytest.raises(ValidationError):
+        ResponsesRequest.model_validate(request_data(
+            child_friendly=True,
+            response_format="json_object",
+        ))
+
+
 def test_responses_request_rejects_unknown_response_format() -> None:
     with pytest.raises(ValidationError):
         ResponsesRequest.model_validate(request_data(response_format="yaml"))

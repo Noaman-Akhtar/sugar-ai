@@ -464,6 +464,7 @@ async def create_response(
             params=params,
             response_format=request_data.response_format,
             retrieval=request_data.retrieval,
+            child_friendly=request_data.child_friendly,
         )
     except UnsupportedModalityError as error:
         raise HTTPException(

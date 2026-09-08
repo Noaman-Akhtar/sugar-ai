@@ -141,3 +141,65 @@ def test_retrieval_disabled_never_queries_the_retriever(monkeypatch) -> None:
     agent.run_multimodal(messages)
 
     assert provider.received_messages is messages
+
+
+class ScriptedProvider:
+    """Returns queued responses and records every call's messages."""
+
+    def __init__(self, *results: ProviderResponse) -> None:
+        self.results = list(results)
+        self.all_messages = []
+
+    def get_model_name(self) -> str:
+        return "scripted-model"
+
+    def generate_multimodal(self, messages, params=None, response_format="text"):
+        self.all_messages.append(messages)
+        return self.results.pop(0)
+
+
+def test_child_friendly_rewrites_the_answer_in_a_second_pass() -> None:
+    provider = ScriptedProvider(
+        ProviderResponse(text="Photosynthesis converts light energy.", status="completed"),
+        ProviderResponse(
+            text="Child-friendly answer: Plants turn sunlight into food.",
+            status="completed",
+        ),
+    )
+    agent = RAGAgent(provider)
+    messages = (user_message(NormalizedText(text="What is photosynthesis?")),)
+
+    result = agent.run_multimodal(messages, child_friendly=True)
+
+    assert result == ProviderResponse(
+        text="Plants turn sunlight into food.", status="completed"
+    )
+    assert len(provider.all_messages) == 2
+    rewrite_prompt = provider.all_messages[1][0].content[0].text
+    assert "Photosynthesis converts light energy." in rewrite_prompt
+
+
+def test_child_friendly_skips_rewrite_of_incomplete_answers() -> None:
+    provider = ScriptedProvider(
+        ProviderResponse(text="Partial answer", status="incomplete"),
+    )
+    agent = RAGAgent(provider)
+    messages = (user_message(NormalizedText(text="Question")),)
+
+    result = agent.run_multimodal(messages, child_friendly=True)
+
+    assert result == ProviderResponse(text="Partial answer", status="incomplete")
+    assert len(provider.all_messages) == 1
+
+
+def test_child_friendly_disabled_makes_a_single_provider_call() -> None:
+    provider = ScriptedProvider(
+        ProviderResponse(text="Answer", status="completed"),
+    )
+    agent = RAGAgent(provider)
+    messages = (user_message(NormalizedText(text="Question")),)
+
+    result = agent.run_multimodal(messages)
+
+    assert result.text == "Answer"
+    assert len(provider.all_messages) == 1

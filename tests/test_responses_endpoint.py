@@ -47,11 +47,14 @@ class FakeAgent:
         self.calls = []
 
     def run_multimodal(
-        self, messages, params=None, response_format="text", retrieval=False
+        self, messages, params=None, response_format="text",
+        retrieval=False, child_friendly=False,
     ):
         self.calls.append((messages, params, response_format))
         self.retrieval_flags = getattr(self, "retrieval_flags", [])
         self.retrieval_flags.append(retrieval)
+        self.child_friendly_flags = getattr(self, "child_friendly_flags", [])
+        self.child_friendly_flags.append(child_friendly)
         return self.result
 
 
@@ -263,6 +266,15 @@ def test_retrieval_flag_reaches_the_agent(client, monkeypatch):
     assert off.status_code == 200
     assert on.status_code == 200
     assert agent.retrieval_flags == [False, True]
+
+
+def test_child_friendly_flag_reaches_the_agent(client, monkeypatch):
+    agent = install_agent(monkeypatch, FakeAgent(FakeProvider()))
+
+    response = post_responses(client, text_payload(child_friendly=True))
+
+    assert response.status_code == 200
+    assert agent.child_friendly_flags == [True]
 
 
 def test_missing_api_key_returns_401(client, monkeypatch):
