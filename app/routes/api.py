@@ -13,6 +13,7 @@ from typing import Dict, Optional, List
 
 from app.database import get_db, APIKey
 from app.ai import RAGAgent
+from app.multimodal import ImagePart, ResponsesRequest
 from app.providers.base import GenerationParams
 from app.config import settings
 
@@ -47,39 +48,65 @@ agent = None
 # user quotas tracking
 user_quotas: Dict[str, Dict] = {}
 
-def check_quota(api_key: str) -> bool:
-    """Check if a user has exceeded their daily quota"""
+# An image costs more than plain text because vision requests are heavier
+# for the provider. The formula is one unit per request plus two per image.
+IMAGE_QUOTA_UNITS = 2
+
+def _quota_state(api_key: str) -> Dict:
+    """Return today's quota record for a key, resetting it daily."""
     today = datetime.now().date()
-    
-    if api_key not in user_quotas:
-        user_quotas[api_key] = {"count": 0, "date": today}
-        return True
-        
-    # reset quota daily
-    if user_quotas[api_key]["date"] != today:
-        user_quotas[api_key]["count"] = 0
-        user_quotas[api_key]["date"] = today
-        
-    if user_quotas[api_key]["count"] >= settings.MAX_DAILY_REQUESTS:
+    state = user_quotas.get(api_key)
+    if state is None or state["date"] != today:
+        state = {"count": 0, "date": today}
+        user_quotas[api_key] = state
+    return state
+
+def consume_quota_units(api_key: str, units: int) -> bool:
+    """Charge units against today's quota, all or nothing."""
+    state = _quota_state(api_key)
+    if state["count"] + units > settings.MAX_DAILY_REQUESTS:
         return False
-        
-    user_quotas[api_key]["count"] += 1
+    state["count"] += units
     return True
 
-def verify_api_key(api_key: Optional[str] = Header(None, alias="X-API-Key"), request: Request = None):
-    """Verify API key and check quota"""
+def remaining_quota_units(api_key: str) -> int:
+    """Return how many units the key can still spend today."""
+    return max(settings.MAX_DAILY_REQUESTS - _quota_state(api_key)["count"], 0)
+
+def request_quota_units(request_data: ResponsesRequest) -> int:
+    """Return the unit cost of a validated multimodal request."""
+    images = sum(
+        1
+        for message in request_data.messages
+        for part in message.content
+        if isinstance(part, ImagePart)
+    )
+    return 1 + IMAGE_QUOTA_UNITS * images
+
+def check_quota(api_key: str) -> bool:
+    """Check if a user has exceeded their daily quota"""
+    return consume_quota_units(api_key, 1)
+
+def authenticate_api_key(api_key: Optional[str] = Header(None, alias="X-API-Key"), request: Request = None) -> str:
+    """Verify the API key without consuming quota; return the key itself."""
     if not api_key:
         logger.warning(f"API key missing: {request.client.host if request else 'unknown'}")
         raise HTTPException(status_code=401, detail="API key is missing")
-    
+
     if api_key not in settings.API_KEYS:
         logger.warning(f"Invalid API key used: {api_key[:5]}... from {request.client.host if request else 'unknown'}")
         raise HTTPException(status_code=401, detail="Invalid API key")
-    
+
+    return api_key
+
+def verify_api_key(api_key: Optional[str] = Header(None, alias="X-API-Key"), request: Request = None):
+    """Verify API key and check quota"""
+    api_key = authenticate_api_key(api_key, request)
+
     if not check_quota(api_key):
         logger.warning(f"Quota exceeded for user: {settings.API_KEYS[api_key]['name']}")
         raise HTTPException(status_code=429, detail="Daily request quota exceeded")
-    
+
     return settings.API_KEYS[api_key]
 
 @router.post("/ask")
