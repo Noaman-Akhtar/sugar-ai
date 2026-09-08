@@ -139,6 +139,7 @@ class ResponsesRequest(BaseModel):
     messages: list[ResponseMessage] = Field(min_length=1)
     generation: GenerationOptions = Field(default_factory=GenerationOptions)
     response_format: Literal["text", "json_object"] = "text"
+    retrieval: bool = False
 
     @model_validator(mode="after")
     def validate_request_image_limits(self) -> "ResponsesRequest":

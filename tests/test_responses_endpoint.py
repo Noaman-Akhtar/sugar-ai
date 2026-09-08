@@ -46,8 +46,12 @@ class FakeAgent:
         self.result = result
         self.calls = []
 
-    def run_multimodal(self, messages, params=None, response_format="text"):
+    def run_multimodal(
+        self, messages, params=None, response_format="text", retrieval=False
+    ):
         self.calls.append((messages, params, response_format))
+        self.retrieval_flags = getattr(self, "retrieval_flags", [])
+        self.retrieval_flags.append(retrieval)
         return self.result
 
 
@@ -248,6 +252,17 @@ def test_sampling_controls_reach_the_provider(client, monkeypatch):
     assert params.top_k == 20
     assert params.repetition_penalty == 1.2
     assert params.truncation is False
+
+
+def test_retrieval_flag_reaches_the_agent(client, monkeypatch):
+    agent = install_agent(monkeypatch, FakeAgent(FakeProvider()))
+
+    off = post_responses(client, text_payload())
+    on = post_responses(client, text_payload(retrieval=True))
+
+    assert off.status_code == 200
+    assert on.status_code == 200
+    assert agent.retrieval_flags == [False, True]
 
 
 def test_missing_api_key_returns_401(client, monkeypatch):

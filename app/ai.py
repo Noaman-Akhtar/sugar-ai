@@ -21,7 +21,7 @@ from langchain_community.document_loaders import PyMuPDFLoader, TextLoader
 from typing import Optional, List
 import app.prompts as prompts
 from app.config import settings
-from app.multimodal import NormalizedMessage
+from app.multimodal import NormalizedMessage, NormalizedText
 from app.providers.base import (
     BaseProvider,
     GenerationParams,
@@ -190,13 +190,50 @@ class RAGAgent:
         messages: tuple[NormalizedMessage, ...],
         params: Optional[GenerationParams] = None,
         response_format: ResponseFormat = "text",
+        retrieval: bool = False,
     ) -> ProviderResponse:
         """Delegate normalized multimodal generation to the selected provider."""
+        if retrieval:
+            messages = self._with_retrieved_context(messages)
         return self.provider.generate_multimodal(
             messages,
             params=params,
             response_format=response_format,
         )
+
+    def _with_retrieved_context(
+        self, messages: tuple[NormalizedMessage, ...]
+    ) -> tuple[NormalizedMessage, ...]:
+        """Append retrieved documentation as a system message, if any matches.
+
+        The query is the text of the last user message; images carry no
+        retrievable text. The caller's own system message stays first so
+        the activity keeps control of persona and tone.
+        """
+        last_user_message = next(
+            (m for m in reversed(messages) if m.role == "user"), None
+        )
+        if last_user_message is None:
+            return messages
+        query_parts = [
+            part.text
+            for part in last_user_message.content
+            if isinstance(part, NormalizedText)
+        ]
+        if not query_parts:
+            return messages
+
+        doc_result, _ = self.get_relevant_document(" ".join(query_parts))
+        if not doc_result:
+            return messages
+
+        context_message = NormalizedMessage(
+            role="system",
+            content=(NormalizedText(
+                text="Relevant Sugar documentation:\n\n" + doc_result.page_content
+            ),),
+        )
+        return messages + (context_message,)
 
     def _truncate_at_eos(self, text: str) -> str:
         """Trim model output at an explicit end-of-sequence token."""
