@@ -35,7 +35,41 @@ def test_responses_request_uses_safe_generation_defaults() -> None:
 
     assert request.generation.max_new_tokens == 1024
     assert request.generation.temperature is None
+    assert request.generation.top_p == 0.9
+    assert request.generation.top_k == 50
+    assert request.generation.repetition_penalty == 1.1
+    assert request.generation.truncation is True
     assert request.response_format == "text"
+
+
+def test_responses_request_accepts_full_sampling_controls() -> None:
+    request = ResponsesRequest.model_validate(request_data(
+        generation={
+            "top_p": 0.8,
+            "top_k": 20,
+            "repetition_penalty": 1.2,
+            "truncation": False,
+        }
+    ))
+
+    assert request.generation.top_p == 0.8
+    assert request.generation.top_k == 20
+    assert request.generation.repetition_penalty == 1.2
+    assert request.generation.truncation is False
+
+
+@pytest.mark.parametrize("generation", [
+    {"top_p": 0.0},
+    {"top_p": 1.1},
+    {"top_k": -1},
+    {"repetition_penalty": 0.0},
+    {"repetition_penalty": 2.1},
+])
+def test_responses_request_rejects_unsafe_sampling_controls(
+    generation: dict,
+) -> None:
+    with pytest.raises(ValidationError):
+        ResponsesRequest.model_validate(request_data(generation=generation))
 
 
 def test_responses_request_accepts_json_object_format_and_temperature() -> None:

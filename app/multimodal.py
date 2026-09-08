@@ -110,10 +110,19 @@ class ResponseMessage(BaseModel):
 
 
 class GenerationOptions(BaseModel):
-    """Provider-neutral controls for one response generation."""
+    """Provider-neutral controls for one response generation.
+
+    Defaults match GenerationParams so an omitted field behaves the same
+    as on the legacy endpoints. Providers that cannot honor a sampling
+    control ignore it rather than failing.
+    """
 
     max_new_tokens: int = Field(default=1024, gt=0)
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    top_p: float = Field(default=0.9, gt=0.0, le=1.0)
+    top_k: int = Field(default=50, ge=0)
+    repetition_penalty: float = Field(default=1.1, gt=0.0, le=2.0)
+    truncation: bool = True
 
     @model_validator(mode="after")
     def max_new_tokens_must_be_within_server_limit(self) -> "GenerationOptions":

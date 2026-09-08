@@ -228,6 +228,28 @@ def test_malformed_provider_json_is_not_returned_as_structured_data(
     assert response.json()["detail"]["code"] == "invalid_provider_output"
 
 
+def test_sampling_controls_reach_the_provider(client, monkeypatch):
+    agent = install_agent(monkeypatch, FakeAgent(FakeProvider()))
+
+    response = post_responses(client, text_payload(generation={
+        "max_new_tokens": 200,
+        "temperature": 0.3,
+        "top_p": 0.8,
+        "top_k": 20,
+        "repetition_penalty": 1.2,
+        "truncation": False,
+    }))
+
+    assert response.status_code == 200
+    _, params, _ = agent.calls[0]
+    assert params.max_new_tokens == 200
+    assert params.temperature == 0.3
+    assert params.top_p == 0.8
+    assert params.top_k == 20
+    assert params.repetition_penalty == 1.2
+    assert params.truncation is False
+
+
 def test_missing_api_key_returns_401(client, monkeypatch):
     install_agent(monkeypatch, FakeAgent(FakeProvider()))
 

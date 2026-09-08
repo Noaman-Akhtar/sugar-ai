@@ -446,13 +446,16 @@ async def create_response(
         )
 
     generation = request_data.generation
-    if generation.temperature is None:
-        params = GenerationParams(max_new_tokens=generation.max_new_tokens)
-    else:
-        params = GenerationParams(
-            max_new_tokens=generation.max_new_tokens,
-            temperature=generation.temperature,
-        )
+    params_kwargs = {
+        "max_new_tokens": generation.max_new_tokens,
+        "top_p": generation.top_p,
+        "top_k": generation.top_k,
+        "repetition_penalty": generation.repetition_penalty,
+        "truncation": generation.truncation,
+    }
+    if generation.temperature is not None:
+        params_kwargs["temperature"] = generation.temperature
+    params = GenerationParams(**params_kwargs)
 
     start_time = time.time()
     try:
