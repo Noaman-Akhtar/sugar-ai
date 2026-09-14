@@ -42,15 +42,24 @@ def test_base_provider_declares_text_only_response_support() -> None:
     assert not test_provider.supports_response_format("json_object")
 
 
-def test_base_provider_rejects_unimplemented_normalized_generation() -> None:
+def test_base_provider_serves_text_messages_through_chat() -> None:
     test_provider = provider()
+    received = {}
+
+    def fake_chat(messages, params=None):
+        received["messages"] = messages
+        return "Chat answer"
+
+    test_provider.chat = fake_chat
     messages = (NormalizedMessage(
         role="user",
         content=(NormalizedText(text="Hello"),),
     ),)
 
-    with pytest.raises(UnsupportedModalityError, match="has not implemented"):
-        test_provider.generate_multimodal(messages)
+    result = test_provider.generate_multimodal(messages)
+
+    assert result == ProviderResponse(text="Chat answer", status="completed")
+    assert received["messages"] == [{"role": "user", "content": "Hello"}]
 
 
 def test_base_provider_rejects_images_before_attempting_generation() -> None:

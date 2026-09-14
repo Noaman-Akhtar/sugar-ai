@@ -20,7 +20,7 @@ import logging
 from dataclasses import dataclass
 from typing import Literal, Optional
 
-from app.multimodal import NormalizedImage, NormalizedMessage
+from app.multimodal import NormalizedImage, NormalizedMessage, NormalizedText
 
 logger = logging.getLogger("sugar-ai")
 
@@ -165,8 +165,28 @@ class BaseProvider:
             raise UnsupportedResponseFormatError(
                 f"{type(self).__name__} does not support {response_format} responses"
             )
-        raise UnsupportedModalityError(
-            f"{type(self).__name__} has not implemented normalized message generation"
+        if "image" in required_modalities:
+            raise UnsupportedModalityError(
+                f"{type(self).__name__} has not implemented image generation"
+            )
+
+        # Text-only fallback: any provider with a chat() method can serve
+        # normalized text messages. chat() cannot report truncation, so the
+        # result is marked completed, matching the legacy endpoints.
+        chat_messages = [
+            {
+                "role": message.role,
+                "content": "\n\n".join(
+                    part.text
+                    for part in message.content
+                    if isinstance(part, NormalizedText)
+                ),
+            }
+            for message in messages
+        ]
+        return ProviderResponse(
+            text=self.chat(chat_messages, params),
+            status="completed",
         )
 
     def health_check(self) -> bool:
