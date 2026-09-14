@@ -8,12 +8,18 @@ import time
 import logging
 import os
 import json
+import uuid
 from datetime import datetime
 from typing import Dict, Optional, List
 
 from app.database import get_db, APIKey
 from app.ai import RAGAgent
-from app.providers.base import GenerationParams
+from app.multimodal import ImagePart, ResponsesRequest, normalize_messages
+from app.providers.base import (
+    GenerationParams,
+    UnsupportedModalityError,
+    UnsupportedResponseFormatError,
+)
 from app.config import settings
 
 # Pydantic models for chat completions
@@ -47,39 +53,65 @@ agent = None
 # user quotas tracking
 user_quotas: Dict[str, Dict] = {}
 
-def check_quota(api_key: str) -> bool:
-    """Check if a user has exceeded their daily quota"""
+# An image costs more than plain text because vision requests are heavier
+# for the provider. The formula is one unit per request plus two per image.
+IMAGE_QUOTA_UNITS = 2
+
+def _quota_state(api_key: str) -> Dict:
+    """Return today's quota record for a key, resetting it daily."""
     today = datetime.now().date()
-    
-    if api_key not in user_quotas:
-        user_quotas[api_key] = {"count": 0, "date": today}
-        return True
-        
-    # reset quota daily
-    if user_quotas[api_key]["date"] != today:
-        user_quotas[api_key]["count"] = 0
-        user_quotas[api_key]["date"] = today
-        
-    if user_quotas[api_key]["count"] >= settings.MAX_DAILY_REQUESTS:
+    state = user_quotas.get(api_key)
+    if state is None or state["date"] != today:
+        state = {"count": 0, "date": today}
+        user_quotas[api_key] = state
+    return state
+
+def consume_quota_units(api_key: str, units: int) -> bool:
+    """Charge units against today's quota, all or nothing."""
+    state = _quota_state(api_key)
+    if state["count"] + units > settings.MAX_DAILY_REQUESTS:
         return False
-        
-    user_quotas[api_key]["count"] += 1
+    state["count"] += units
     return True
 
-def verify_api_key(api_key: Optional[str] = Header(None, alias="X-API-Key"), request: Request = None):
-    """Verify API key and check quota"""
+def remaining_quota_units(api_key: str) -> int:
+    """Return how many units the key can still spend today."""
+    return max(settings.MAX_DAILY_REQUESTS - _quota_state(api_key)["count"], 0)
+
+def request_quota_units(request_data: ResponsesRequest) -> int:
+    """Return the unit cost of a validated multimodal request."""
+    images = sum(
+        1
+        for message in request_data.messages
+        for part in message.content
+        if isinstance(part, ImagePart)
+    )
+    return 1 + IMAGE_QUOTA_UNITS * images
+
+def check_quota(api_key: str) -> bool:
+    """Check if a user has exceeded their daily quota"""
+    return consume_quota_units(api_key, 1)
+
+def authenticate_api_key(api_key: Optional[str] = Header(None, alias="X-API-Key"), request: Request = None) -> str:
+    """Verify the API key without consuming quota; return the key itself."""
     if not api_key:
         logger.warning(f"API key missing: {request.client.host if request else 'unknown'}")
         raise HTTPException(status_code=401, detail="API key is missing")
-    
+
     if api_key not in settings.API_KEYS:
         logger.warning(f"Invalid API key used: {api_key[:5]}... from {request.client.host if request else 'unknown'}")
         raise HTTPException(status_code=401, detail="Invalid API key")
-    
+
+    return api_key
+
+def verify_api_key(api_key: Optional[str] = Header(None, alias="X-API-Key"), request: Request = None):
+    """Verify API key and check quota"""
+    api_key = authenticate_api_key(api_key, request)
+
     if not check_quota(api_key):
         logger.warning(f"Quota exceeded for user: {settings.API_KEYS[api_key]['name']}")
         raise HTTPException(status_code=429, detail="Daily request quota exceeded")
-    
+
     return settings.API_KEYS[api_key]
 
 @router.post("/ask")
@@ -349,6 +381,147 @@ async def change_model(
     except Exception as e:
         logger.error(f"Error changing model to {model} by {user_info['name']}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error changing model: {str(e)}")
+
+
+@router.post("/v1/responses")
+async def create_response(
+    request_data: ResponsesRequest,
+    api_key: str = Depends(authenticate_api_key),
+    request: Request = None,
+):
+    """Generate a response from typed text and image content parts.
+
+    The versioned contract for activities: validation happens before any
+    quota is spent, capability failures are clear client errors, and media
+    bytes never reach the logs.
+    """
+    client_ip = request.client.host if request else "unknown"
+    user_name = settings.API_KEYS[api_key]["name"]
+    image_count = sum(
+        1
+        for message in request_data.messages
+        for part in message.content
+        if isinstance(part, ImagePart)
+    )
+    logger.info(
+        f"REQUEST - /v1/responses - User: {user_name} - IP: {client_ip} - "
+        f"Messages: {len(request_data.messages)} - Images: {image_count} - "
+        f"Format: {request_data.response_format}"
+    )
+
+    provider = agent.provider
+    required_modalities = {"text"}
+    if image_count:
+        required_modalities.add("image")
+
+    # Refuse impossible requests before spending any quota.
+    if not provider.supports_input_modalities(required_modalities):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "unsupported_modality",
+                "message": "The configured provider does not accept image input",
+            },
+        )
+    if not provider.supports_response_format(request_data.response_format):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "unsupported_response_format",
+                "message": (
+                    "The configured provider does not support "
+                    f"{request_data.response_format} responses"
+                ),
+            },
+        )
+
+    units = request_quota_units(request_data)
+    if not consume_quota_units(api_key, units):
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "insufficient_quota",
+                "message": "Daily request quota exceeded",
+            },
+        )
+
+    generation = request_data.generation
+    params_kwargs = {
+        "max_new_tokens": generation.max_new_tokens,
+        "top_p": generation.top_p,
+        "top_k": generation.top_k,
+        "repetition_penalty": generation.repetition_penalty,
+        "truncation": generation.truncation,
+    }
+    if generation.temperature is not None:
+        params_kwargs["temperature"] = generation.temperature
+    params = GenerationParams(**params_kwargs)
+
+    start_time = time.time()
+    try:
+        result = agent.run_multimodal(
+            normalize_messages(request_data),
+            params=params,
+            response_format=request_data.response_format,
+            retrieval=request_data.retrieval,
+            child_friendly=request_data.child_friendly,
+        )
+    except UnsupportedModalityError as error:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "unsupported_modality", "message": str(error)},
+        )
+    except UnsupportedResponseFormatError as error:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "unsupported_response_format", "message": str(error)},
+        )
+    except Exception as error:
+        logger.error(f"ERROR - /v1/responses - User: {user_name} - Error: {str(error)}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "provider_error",
+                "message": "Error generating response",
+            },
+        )
+
+    process_time = time.time() - start_time
+    logger.info(
+        f"RESPONSE - /v1/responses - User: {user_name} - Status: {result.status} - "
+        f"Time: {process_time:.2f}s"
+    )
+
+    if request_data.response_format == "json_object":
+        try:
+            parsed = json.loads(result.text)
+        except json.JSONDecodeError:
+            parsed = None
+        if not isinstance(parsed, dict):
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "code": "invalid_provider_output",
+                    "message": "The provider did not return a valid JSON object",
+                },
+            )
+        output = [{"type": "json", "json": parsed}]
+    else:
+        output = [{"type": "text", "text": result.text}]
+
+    body = {
+        "id": f"resp_{uuid.uuid4().hex}",
+        "status": result.status,
+        "output": output,
+        "quota": {
+            "used_units": units,
+            "remaining_units": remaining_quota_units(api_key),
+            "daily_limit_units": settings.MAX_DAILY_REQUESTS,
+        },
+    }
+    if result.status == "incomplete":
+        body["incomplete_reason"] = "output_limit"
+    return body
 
 
 @router.get("/health")

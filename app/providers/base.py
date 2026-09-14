@@ -18,13 +18,34 @@
 import httpx
 import logging
 from dataclasses import dataclass
-from typing import Optional
+from typing import Literal, Optional
+
+from app.multimodal import NormalizedImage, NormalizedMessage, NormalizedText
 
 logger = logging.getLogger("sugar-ai")
 
 # Cloud APIs are usually fast, but allow headroom for cold routes / rate-limit
 # retries handled upstream. 120s is generous without hanging forever.
 _DEFAULT_TIMEOUT = 120.0
+
+InputModality = Literal["text", "image"]
+ResponseFormat = Literal["text", "json_object"]
+
+
+class UnsupportedModalityError(ValueError):
+    """Raised when a provider cannot accept required input content."""
+
+
+class UnsupportedResponseFormatError(ValueError):
+    """Raised when a provider cannot reliably produce a requested format."""
+
+
+@dataclass(frozen=True)
+class ProviderResponse:
+    """Provider-neutral generated text and its completion state."""
+
+    text: str
+    status: Literal["completed", "incomplete"]
 
 
 @dataclass(frozen=True)
@@ -104,6 +125,69 @@ class BaseProvider:
 
     def get_model_name(self) -> str:
         return self.model_name
+
+    def supported_input_modalities(self) -> frozenset[InputModality]:
+        """Return input modalities this provider can handle safely."""
+        return frozenset({"text"})
+
+    def supports_input_modalities(
+        self, required_modalities: set[InputModality]
+    ) -> bool:
+        """Return whether every required input modality is supported."""
+        return required_modalities <= self.supported_input_modalities()
+
+    def supports_response_format(self, response_format: ResponseFormat) -> bool:
+        """Return whether this provider can reliably produce the format."""
+        return response_format == "text"
+
+    def generate_multimodal(
+        self,
+        messages: tuple[NormalizedMessage, ...],
+        params: Optional[GenerationParams] = None,
+        response_format: ResponseFormat = "text",
+    ) -> ProviderResponse:
+        """Generate from normalized messages in a provider-specific adapter."""
+        required_modalities: set[InputModality] = {"text"}
+        if any(
+            isinstance(part, NormalizedImage)
+            for message in messages
+            for part in message.content
+        ):
+            required_modalities.add("image")
+
+        if not self.supports_input_modalities(required_modalities):
+            unsupported_modalities = required_modalities - self.supported_input_modalities()
+            raise UnsupportedModalityError(
+                f"{type(self).__name__} does not support "
+                f"{', '.join(sorted(unsupported_modalities))} input"
+            )
+        if not self.supports_response_format(response_format):
+            raise UnsupportedResponseFormatError(
+                f"{type(self).__name__} does not support {response_format} responses"
+            )
+        if "image" in required_modalities:
+            raise UnsupportedModalityError(
+                f"{type(self).__name__} has not implemented image generation"
+            )
+
+        # Text-only fallback: any provider with a chat() method can serve
+        # normalized text messages. chat() cannot report truncation, so the
+        # result is marked completed, matching the legacy endpoints.
+        chat_messages = [
+            {
+                "role": message.role,
+                "content": "\n\n".join(
+                    part.text
+                    for part in message.content
+                    if isinstance(part, NormalizedText)
+                ),
+            }
+            for message in messages
+        ]
+        return ProviderResponse(
+            text=self.chat(chat_messages, params),
+            status="completed",
+        )
 
     def health_check(self) -> bool:
         """Verify the endpoint is reachable and the key/model are valid."""

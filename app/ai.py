@@ -21,7 +21,13 @@ from langchain_community.document_loaders import PyMuPDFLoader, TextLoader
 from typing import Optional, List
 import app.prompts as prompts
 from app.config import settings
-from app.providers.base import BaseProvider, GenerationParams
+from app.multimodal import NormalizedMessage, NormalizedText
+from app.providers.base import (
+    BaseProvider,
+    GenerationParams,
+    ProviderResponse,
+    ResponseFormat,
+)
 import logging
 
 logger = logging.getLogger("sugar-ai")
@@ -178,6 +184,91 @@ class RAGAgent:
             return answer
         except Exception as e:
             raise Exception(f"Error generating chat completion: {str(e)}")
+
+    def run_multimodal(
+        self,
+        messages: tuple[NormalizedMessage, ...],
+        params: Optional[GenerationParams] = None,
+        response_format: ResponseFormat = "text",
+        retrieval: bool = False,
+        child_friendly: bool = False,
+    ) -> ProviderResponse:
+        """Delegate normalized multimodal generation to the selected provider."""
+        if retrieval:
+            messages = self._with_retrieved_context(messages)
+        result = self.provider.generate_multimodal(
+            messages,
+            params=params,
+            response_format=response_format,
+        )
+        if child_friendly and response_format == "text":
+            result = self._rewrite_child_friendly(result, params)
+        return result
+
+    def _rewrite_child_friendly(
+        self,
+        result: ProviderResponse,
+        params: Optional[GenerationParams],
+    ) -> ProviderResponse:
+        """Rewrite a completed answer in child-friendly language.
+
+        Two passes because small models handle one instruction at a time
+        better than a compound one. A truncated first answer is returned
+        as-is: rewriting it would hide that it is incomplete.
+        """
+        if result.status != "completed" or not result.text.strip():
+            return result
+
+        rewrite_prompt = self.child_prompt_template.format(
+            original_answer=result.text
+        )
+        rewritten = self.provider.generate_multimodal(
+            (NormalizedMessage(
+                role="user",
+                content=(NormalizedText(text=rewrite_prompt),),
+            ),),
+            params=params,
+            response_format="text",
+        )
+
+        text = rewritten.text
+        if "Child-friendly answer:" in text:
+            text = text.split("Child-friendly answer:")[-1].strip()
+        return ProviderResponse(text=text, status=rewritten.status)
+
+    def _with_retrieved_context(
+        self, messages: tuple[NormalizedMessage, ...]
+    ) -> tuple[NormalizedMessage, ...]:
+        """Append retrieved documentation as a system message, if any matches.
+
+        The query is the text of the last user message; images carry no
+        retrievable text. The caller's own system message stays first so
+        the activity keeps control of persona and tone.
+        """
+        last_user_message = next(
+            (m for m in reversed(messages) if m.role == "user"), None
+        )
+        if last_user_message is None:
+            return messages
+        query_parts = [
+            part.text
+            for part in last_user_message.content
+            if isinstance(part, NormalizedText)
+        ]
+        if not query_parts:
+            return messages
+
+        doc_result, _ = self.get_relevant_document(" ".join(query_parts))
+        if not doc_result:
+            return messages
+
+        context_message = NormalizedMessage(
+            role="system",
+            content=(NormalizedText(
+                text="Relevant Sugar documentation:\n\n" + doc_result.page_content
+            ),),
+        )
+        return messages + (context_message,)
 
     def _truncate_at_eos(self, text: str) -> str:
         """Trim model output at an explicit end-of-sequence token."""
